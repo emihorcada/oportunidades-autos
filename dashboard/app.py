@@ -60,6 +60,12 @@ def load_data():
     merged["net_profit_usd"] = merged["potential_profit_usd"] - merged["travel_cost_usd"]
     merged["suggested_price_usd"] = (merged["median_price_usd"] * 0.95).round(0)
 
+    # Aging: use published_days_ago from DB (fetched from ML page)
+    if "published_days_ago" in merged.columns:
+        merged["aging_days"] = merged["published_days_ago"]
+    else:
+        merged["aging_days"] = None
+
     return listings, references, merged
 
 
@@ -69,7 +75,8 @@ def _build_css():
     * { font-family: Arial, Helvetica, sans-serif; }
     .opp-table {
         width: 100%;
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         font-size: 13px;
         background: #ffffff;
         color: #222;
@@ -96,69 +103,73 @@ def _build_css():
     .opp-table tr:hover {
         background: #f9f9f9;
     }
-    /* Thumbnail */
-    .thumb-wrap {
+
+    /* --- Photo thumbnail + enlarged preview --- */
+    .thumb-cell {
         position: relative;
-        display: inline-block;
-        cursor: pointer;
     }
-    .thumb-wrap img {
+    .thumb-cell img.thumb {
         width: 72px;
         height: 50px;
         object-fit: cover;
         border-radius: 4px;
         border: 1px solid #ddd;
-        transition: transform 0.2s;
+        cursor: pointer;
     }
-    .thumb-wrap:hover img {
-        transform: scale(5);
+    .thumb-cell .thumb-big {
+        display: none;
         position: fixed;
-        z-index: 9999;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-        border-radius: 8px;
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        width: 400px;
-        height: auto;
-        max-height: 80vh;
+        z-index: 99999;
+        max-width: 80vw;
+        max-height: 75vh;
         object-fit: contain;
+        border-radius: 10px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.45);
     }
-    /* Generic tooltip */
+    .thumb-cell .thumb-backdrop {
+        display: none;
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.5);
+        z-index: 99998;
+    }
+    .thumb-cell:hover .thumb-big,
+    .thumb-cell:hover .thumb-backdrop {
+        display: block;
+    }
+
+    /* --- Tooltip via CSS --- */
     .tip {
         position: relative;
         cursor: help;
         border-bottom: 1px dotted #999;
     }
-    .tip .tip-text {
-        visibility: hidden;
-        opacity: 0;
+    .tip .tip-box {
+        display: none;
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
         background: #fff;
         color: #222;
         border: 1px solid #ccc;
-        border-radius: 6px;
-        padding: 10px 14px;
-        position: absolute;
-        z-index: 200;
-        bottom: 130%;
-        left: 50%;
-        transform: translateX(-50%);
-        white-space: nowrap;
-        font-size: 12px;
-        box-shadow: 0 3px 12px rgba(0,0,0,0.15);
-        transition: opacity 0.15s;
-        line-height: 1.6;
+        border-radius: 8px;
+        padding: 14px 18px;
+        z-index: 90000;
+        font-size: 13px;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+        line-height: 1.7;
+        max-width: 380px;
+        min-width: 200px;
     }
-    .tip:hover .tip-text {
-        visibility: visible;
-        opacity: 1;
+    .tip:hover .tip-box {
+        display: block;
     }
-    /* Wide tooltip for median */
-    .tip .tip-wide {
-        white-space: normal;
-        width: 320px;
-        text-align: left;
-    }
+
     .profit-positive { color: #1a8a4a; font-weight: bold; }
     .profit-negative { color: #cc3333; font-weight: bold; }
     .suggested-price { color: #1a6dcc; font-weight: 600; }
@@ -246,19 +257,23 @@ def _build_opportunities_table(df, all_data):
         net_profit = row.get("net_profit_usd", 0)
         suggested = _fmt(row.get("suggested_price_usd"))
 
-        # Photo
+        # Photo — click goes to listing
         if img_url:
-            photo_html = f'<a href="{url}" target="_blank" class="thumb-wrap"><img src="{img_url}" alt="{brand} {model}"></a>'
+            photo_html = (
+                f'<a href="{url}" target="_blank">'
+                f'<img style="width:72px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #ddd" '
+                f'src="{img_url}" alt="{brand} {model}"></a>'
+            )
         else:
             photo_html = '<span style="color:#aaa">Sin foto</span>'
 
         # Median with tooltip
         median_tip = _build_median_tooltip(row, all_data)
-        median_html = f'<span class="tip">USD {median_usd}<span class="tip-text tip-wide">{median_tip}</span></span>'
+        median_html = f'<span class="tip">USD {median_usd}<span class="tip-box">{median_tip}</span></span>'
 
         # Travel cost
         if needs_travel and travel_cost > 0:
-            travel_html = f'<span class="tip">USD {travel_cost:,.0f}<span class="tip-text">{travel_detail}</span></span>'
+            travel_html = f'<span class="tip">USD {travel_cost:,.0f}<span class="tip-box">{travel_detail}</span></span>'
         else:
             travel_html = '<span class="local-badge">—</span>'
 
@@ -268,6 +283,21 @@ def _build_opportunities_table(df, all_data):
 
         # Suggested sale price
         suggested_html = f'<span class="suggested-price">USD {suggested}</span>'
+
+        # Aging
+        aging_raw = row.get("aging_days")
+        if aging_raw is None or pd.isna(aging_raw):
+            aging_html = '<span style="color:#999">s/d</span>'
+        else:
+            aging = int(aging_raw)
+            if aging <= 3:
+                aging_html = f'<span style="color:#1a8a4a;font-weight:600">{aging}d</span>'
+            elif aging <= 14:
+                aging_html = f'<span style="color:#1a8a4a">{aging}d</span>'
+            elif aging <= 45:
+                aging_html = f'<span style="color:#cc8800">{aging}d</span>'
+            else:
+                aging_html = f'<span style="color:#cc3333">{aging}d</span>'
 
         # Source with link
         source_html = f'<a href="{url}" target="_blank" style="color:#1a6dcc;text-decoration:none">{source}</a>'
@@ -285,6 +315,7 @@ def _build_opportunities_table(df, all_data):
             <td>{profit_html}</td>
             <td>{location}</td>
             <td>{travel_html}</td>
+            <td>{aging_html}</td>
             <td>{category}</td>
             <td>{source_html}</td>
         </tr>""")
@@ -306,6 +337,7 @@ def _build_opportunities_table(df, all_data):
                 <th>Ganancia Neta</th>
                 <th>Ubicación</th>
                 <th>Costo Viaje</th>
+                <th>Aging</th>
                 <th>Categoría</th>
                 <th>Fuente</th>
             </tr>

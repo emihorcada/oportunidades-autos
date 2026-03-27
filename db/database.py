@@ -33,6 +33,8 @@ class Database:
                 fuel TEXT,
                 image_url TEXT,
                 scraped_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                published_days_ago INTEGER,
                 UNIQUE(source, source_id)
             );
 
@@ -55,18 +57,26 @@ class Database:
         self.conn.execute("""
             INSERT INTO listings (source, source_id, url, brand, model, version,
                 year, km, price_ars, price_usd, currency_original, location,
-                category, transmission, fuel, image_url, scraped_at)
+                category, transmission, fuel, image_url, scraped_at, last_seen_at)
             VALUES (:source, :source_id, :url, :brand, :model, :version,
                 :year, :km, :price_ars, :price_usd, :currency_original, :location,
-                :category, :transmission, :fuel, :image_url, datetime('now'))
+                :category, :transmission, :fuel, :image_url, datetime('now'), datetime('now'))
             ON CONFLICT(source, source_id) DO UPDATE SET
                 price_ars = excluded.price_ars,
                 price_usd = excluded.price_usd,
                 km = excluded.km,
                 url = excluded.url,
                 image_url = excluded.image_url,
-                scraped_at = excluded.scraped_at
+                last_seen_at = datetime('now')
         """, listing)
+        self.conn.commit()
+
+    def update_aging(self, source, source_id, published_days_ago):
+        """Update the published_days_ago for a specific listing."""
+        self.conn.execute(
+            "UPDATE listings SET published_days_ago = ? WHERE source = ? AND source_id = ?",
+            (published_days_ago, source, source_id),
+        )
         self.conn.commit()
 
     def get_all_listings(self):

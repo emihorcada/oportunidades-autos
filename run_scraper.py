@@ -2,6 +2,7 @@ import logging
 import sys
 from core.exchange_rate import get_usd_blue_rate
 from core.analyzer import analyze_listings, find_opportunities, categorize
+from core.aging import fetch_aging_days
 from db.database import Database
 from scrapers.mercadolibre import MercadoLibreScraper
 from scrapers.autocosmos import AutocosmosScraper
@@ -88,6 +89,18 @@ def main():
             f"profit: USD {opp['potential_profit_usd']:,.0f}, "
             f"group: {opp.get('group_level','?')}) - {opp['source']}"
         )
+
+    # Step 6: Fetch publication aging for ML opportunities
+    ml_opps = [o for o in opportunities if o.get("source") == "mercadolibre" and o.get("url")]
+    logger.info(f"Fetching publication age for {len(ml_opps)} MercadoLibre opportunities...")
+    for i, opp in enumerate(ml_opps):
+        days = fetch_aging_days(opp["url"])
+        if days is not None:
+            db.update_aging(opp["source"], opp["source_id"], days)
+        if (i + 1) % 20 == 0:
+            logger.info(f"  Aging: {i + 1}/{len(ml_opps)} processed")
+        import time; time.sleep(1.5)
+    logger.info("Aging fetch complete.")
 
     db.close()
     logger.info("Done.")
