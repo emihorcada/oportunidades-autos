@@ -144,6 +144,7 @@ def test_scrape_page_mock():
     """
     mock_response = MagicMock()
     mock_response.text = html_page
+    mock_response.url = "https://www.demotores.com.ar/autos/usados"
     mock_response.raise_for_status = MagicMock()
 
     scraper = DeMotoresScraper(usd_rate=1200.0)
@@ -152,3 +153,23 @@ def test_scrape_page_mock():
         assert len(results) == 1
         assert results[0]["source"] == "demotores"
         assert results[0]["price_ars"] == 12000000.0
+
+
+def test_scrape_page_detects_shutdown():
+    """Test that scraper detects site shutdown (redirect to soloautos.mx)."""
+    closure_html = """
+    <html><body>
+    <div class="container closingPage">
+        <h1>Aviso de Cierre</h1>
+    </div>
+    </body></html>
+    """
+    mock_response = MagicMock()
+    mock_response.text = closure_html
+    mock_response.url = "https://soloautos.mx/mxclose"
+    mock_response.raise_for_status = MagicMock()
+
+    scraper = DeMotoresScraper(usd_rate=1200.0)
+    with patch.object(scraper.session, "get", return_value=mock_response):
+        results = scraper.scrape_page(1)
+        assert results == []

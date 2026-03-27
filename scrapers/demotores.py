@@ -125,6 +125,14 @@ class DeMotoresScraper:
             logger.warning(f"Failed to parse listing element: {e}")
             return None
 
+    def _check_site_alive(self, response):
+        """Check if the site is still operational (not redirected to closure page)."""
+        if "soloautos.mx" in response.url or "mxclose" in response.url:
+            return False
+        if "aviso de cierre" in response.text.lower() or "closingPage" in response.text:
+            return False
+        return True
+
     def scrape_page(self, page=1):
         """Scrape a single page of listings."""
         url = f"{BASE_URL}?pagina={page}" if page > 1 else BASE_URL
@@ -132,6 +140,14 @@ class DeMotoresScraper:
 
         response = self.session.get(url, headers=headers, timeout=30)
         response.raise_for_status()
+
+        if not self._check_site_alive(response):
+            logger.warning(
+                "DeMotores has shut down (redirects to %s). "
+                "Scraper disabled -- remove or replace this source.",
+                response.url,
+            )
+            return []
 
         soup = BeautifulSoup(response.text, "html.parser")
         cards = soup.find_all("div", class_="listing-card")
