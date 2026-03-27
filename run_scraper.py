@@ -46,6 +46,13 @@ def main():
 
     logger.info(f"Total listings scraped: {len(all_listings)}")
 
+    # Step 2.5: Filter out spam/fake listings with unrealistic prices
+    # Any car under USD 2,000 is almost certainly a spam/inquiry listing
+    MIN_PRICE_USD = 2000
+    before = len(all_listings)
+    all_listings = [l for l in all_listings if l.get("price_usd") and l["price_usd"] >= MIN_PRICE_USD]
+    logger.info(f"Filtered {before - len(all_listings)} listings below USD {MIN_PRICE_USD} (likely spam)")
+
     # Step 3: Analyze and calculate references
     references = analyze_listings(all_listings)
     logger.info(f"Market references calculated for {len(references)} model/year combos")
@@ -53,12 +60,19 @@ def main():
     # Step 4: Assign categories and save to DB
     ref_map = {(r["brand"], r["model"], r["year"]): r for r in references}
 
+    saved = 0
+    skipped = 0
     for listing in all_listings:
-        key = (listing.get("brand"), listing.get("model"), listing.get("year"))
+        if not listing.get("year") or not listing.get("brand") or not listing.get("model"):
+            skipped += 1
+            continue
+        key = (listing["brand"], listing["model"], listing["year"])
         ref = ref_map.get(key)
         if ref:
             listing["category"] = categorize(ref["median_price_usd"])
         db.upsert_listing(listing)
+        saved += 1
+    logger.info(f"Saved {saved} listings to DB ({skipped} skipped due to missing data)")
 
     for ref in references:
         db.save_market_reference(ref)
