@@ -53,39 +53,75 @@ class AutocosmosScraper:
         return int(num_str) if num_str else None
 
     def parse_listing_element(self, element):
-        """Parse a single listing card from the search results page.
-
-        CSS selectors are approximate and may need adjustment against
-        the live site (see Task 11).
-        """
+        """Parse a single listing card (``article.listing-card``) from the
+        search results page."""
         try:
-            # Title usually contains brand + model + version
-            title_el = element.select_one("a.title, h2 a, .card-title a, a[title]")
-            title = title_el.get_text(strip=True) if title_el else ""
-            url = title_el["href"] if title_el and title_el.has_attr("href") else ""
+            # Link – the <a itemprop="url"> wrapping the card content
+            link_el = element.select_one("a[itemprop='url']")
+            if not link_el:
+                link_el = element.select_one("a[href]")
+            url = link_el["href"] if link_el and link_el.has_attr("href") else ""
             if url and not url.startswith("http"):
                 url = "https://www.autocosmos.com.ar" + url
 
-            # Try to split title into brand / model / version
-            parts = title.split(" ", 2)
-            brand = parts[0] if len(parts) > 0 else ""
-            model = parts[1] if len(parts) > 1 else ""
-            version = parts[2] if len(parts) > 2 else ""
+            # Brand / Model / Version – separate <span> elements
+            brand_el = element.select_one("span.listing-card__brand")
+            brand = brand_el.get_text(strip=True) if brand_el else ""
+
+            model_el = element.select_one("span.listing-card__model")
+            model = model_el.get_text(strip=True) if model_el else ""
+
+            version_el = element.select_one("span.listing-card__version")
+            version = version_el.get_text(strip=True) if version_el else ""
 
             # Year
-            year_el = element.select_one(".year, .item-year, span.year")
+            year_el = element.select_one("span.listing-card__year")
             year_text = year_el.get_text(strip=True) if year_el else ""
-            year_match = re.search(r"(\d{4})", year_text or title)
+            year_match = re.search(r"(\d{4})", year_text)
             year = int(year_match.group(1)) if year_match else None
 
             # Km
-            km_el = element.select_one(".km, .item-km, span.km")
+            km_el = element.select_one("span.listing-card__km")
             km = self._parse_km(km_el.get_text(strip=True) if km_el else None)
 
-            # Price
-            price_el = element.select_one(".price, .item-price, span.price")
-            price_text = price_el.get_text(strip=True) if price_el else None
-            price_raw, currency = self._parse_price(price_text)
+            # Price – prefer direct price (``span.listing-card__price``),
+            # then fall back to anticipo (``div.listing-card__price.m-anticipo``).
+            # The numeric value lives in the ``content`` attribute of the
+            # ``<span itemprop="price">`` or in the visible text.
+            price_raw, currency = None, None
+
+            # 1) Direct / full price
+            direct_price = element.select_one("span.listing-card__price")
+            if direct_price:
+                currency_meta = direct_price.select_one("meta[itemprop='priceCurrency']")
+                value_el = direct_price.select_one("span.listing-card__price-value")
+                if value_el:
+                    content_val = value_el.get("content")
+                    if content_val:
+                        price_raw = float(content_val)
+                    else:
+                        price_raw, _ = self._parse_price(value_el.get_text(strip=True))
+                    currency = currency_meta["content"] if currency_meta and currency_meta.has_attr("content") else None
+                    if not currency:
+                        txt = value_el.get_text(strip=True)
+                        currency = "USD" if ("u$s" in txt.lower() or "USD" in txt) else "ARS"
+
+            # 2) Anticipo fallback
+            if price_raw is None:
+                anticipo = element.select_one("div.listing-card__price.m-anticipo")
+                if anticipo:
+                    currency_meta = anticipo.select_one("meta[itemprop='priceCurrency']")
+                    value_el = anticipo.select_one("span.listing-card__price-value")
+                    if value_el:
+                        content_val = value_el.get("content")
+                        if content_val:
+                            price_raw = float(content_val)
+                        else:
+                            price_raw, _ = self._parse_price(value_el.get_text(strip=True))
+                        currency = currency_meta["content"] if currency_meta and currency_meta.has_attr("content") else "ARS"
+
+            if currency is None:
+                currency = "ARS"
 
             if currency == "USD":
                 price_usd = price_raw
@@ -95,14 +131,17 @@ class AutocosmosScraper:
                 price_usd = convert_ars_to_usd(price_raw, self.usd_rate)
 
             # Location
-            loc_el = element.select_one(".location, .item-location, span.location")
-            location = loc_el.get_text(strip=True) if loc_el else ""
+            city_el = element.select_one("span.listing-card__city")
+            province_el = element.select_one("span.listing-card__province")
+            city = city_el.get_text(strip=True).rstrip(" |") if city_el else ""
+            province = province_el.get_text(strip=True) if province_el else ""
+            location = f"{city}, {province}" if city and province else city or province
 
             # Image
-            img_el = element.select_one("img")
+            img_el = element.select_one("figure.listing-card__image img")
             image_url = ""
             if img_el:
-                image_url = img_el.get("src") or img_el.get("data-src") or ""
+                image_url = img_el.get("src") or img_el.get("data-src") or img_el.get("content") or ""
 
             return {
                 "source": "autocosmos",
@@ -128,15 +167,14 @@ class AutocosmosScraper:
 
     def scrape_page(self, page=1):
         """Fetch and parse a single search-results page."""
-        url = BASE_URL if page == 1 else f"{BASE_URL}?pg={page}"
+        url = BASE_URL if page == 1 else f"{BASE_URL}?pidx={page}"
         logger.info(f"  Fetching Autocosmos page {page}: {url}")
 
         response = self.session.get(url, headers=self._get_headers(), timeout=30)
         response.raise_for_status()
 
         soup = BeautifulSoup(response.text, "html.parser")
-        # The listing container selector may need adjustment (Task 11)
-        cards = soup.select(".listing-item, .result-item, article.item, .card-vehicle")
+        cards = soup.select("article.listing-card")
 
         listings = []
         for card in cards:
