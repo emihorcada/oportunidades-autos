@@ -7,7 +7,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.travel_cost import estimate_travel_cost
-from core.analyzer import evaluate_listing
+from core.analyzer import evaluate_listing, analyze_listings, find_opportunities, categorize
+from core.exchange_rate import get_usd_blue_rate
+from core.aging import fetch_aging_days
 from db.database import get_database
 
 BA_PATTERN = re.compile(r"buenos aires|capital federal|caba|gba|ciudad aut", re.IGNORECASE)
@@ -357,6 +359,88 @@ def _build_opportunities_table(df, all_data):
     """
 
 
+def _run_scraper():
+    """Run the full scraper pipeline from the dashboard."""
+    from scrapers.mercadolibre import MercadoLibreScraper
+    from scrapers.autocosmos import AutocosmosScraper
+    import time
+
+    db = get_database()
+    db.init()
+
+    progress = st.sidebar.progress(0, text="Obteniendo tipo de cambio...")
+
+    try:
+        usd_rate = get_usd_blue_rate()
+    except Exception as e:
+        st.sidebar.error(f"Error obteniendo dólar: {e}")
+        return
+
+    progress.progress(10, text=f"Dólar blue: ${usd_rate:,.0f}")
+
+    # Scrape MercadoLibre
+    all_listings = []
+    progress.progress(15, text="Scrapeando MercadoLibre...")
+    try:
+        ml = MercadoLibreScraper(usd_rate)
+        ml_listings = ml.scrape_all()
+        all_listings.extend(ml_listings)
+    except Exception as e:
+        st.sidebar.warning(f"MercadoLibre falló: {e}")
+
+    progress.progress(45, text=f"ML: {len(all_listings)} listings. Scrapeando Autocosmos...")
+
+    # Scrape Autocosmos
+    try:
+        ac = AutocosmosScraper(usd_rate)
+        ac_listings = ac.scrape_all()
+        all_listings.extend(ac_listings)
+    except Exception as e:
+        st.sidebar.warning(f"Autocosmos falló: {e}")
+
+    progress.progress(70, text=f"Total: {len(all_listings)} listings. Filtrando...")
+
+    # Filter spam
+    all_listings = [l for l in all_listings if l.get("price_usd") and l["price_usd"] >= 2000]
+
+    # Analyze
+    references = analyze_listings(all_listings)
+    ref_map = {(r["brand"], r["model"], r["year"]): r for r in references}
+
+    progress.progress(75, text="Guardando en base de datos...")
+
+    # Save to DB
+    saved = 0
+    for listing in all_listings:
+        if not listing.get("year") or not listing.get("brand") or not listing.get("model"):
+            continue
+        key = (listing["brand"], listing["model"], listing["year"])
+        ref = ref_map.get(key)
+        if ref:
+            listing["category"] = categorize(ref["median_price_usd"])
+        db.upsert_listing(listing)
+        saved += 1
+
+    for ref in references:
+        db.save_market_reference(ref)
+
+    progress.progress(85, text=f"Guardados {saved}. Buscando aging...")
+
+    # Fetch aging for ML opportunities
+    opportunities = find_opportunities(all_listings, min_diff_usd=1000)
+    ml_opps = [o for o in opportunities if o.get("source") == "mercadolibre" and o.get("url")]
+    for i, opp in enumerate(ml_opps):
+        days = fetch_aging_days(opp["url"])
+        if days is not None:
+            db.update_aging(opp["source"], opp["source_id"], days)
+        time.sleep(1.5)
+
+    db.close()
+    progress.progress(100, text=f"Listo! {saved} listings, {len(opportunities)} oportunidades")
+    time.sleep(2)
+    progress.empty()
+
+
 def main():
     st.set_page_config(page_title="Detector de Oportunidades", layout="wide")
 
@@ -382,6 +466,15 @@ def main():
     if merged_df.empty:
         st.warning("No hay datos. Ejecuta `python run_scraper.py` primero.")
         return
+
+    # --- Sidebar: Update button ---
+    st.sidebar.header("Actualizar")
+    if st.sidebar.button("Actualizar datos", type="primary", use_container_width=True):
+        _run_scraper()
+        st.cache_data.clear()
+        st.rerun()
+
+    st.sidebar.divider()
 
     # --- Sidebar Filters ---
     st.sidebar.header("Filtros")
