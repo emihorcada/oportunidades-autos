@@ -46,17 +46,36 @@ def test_parse_listing_usd_currency():
     assert parsed["price_ars"] == 15600000.0
 
 
+SAMPLE_HTML = (
+    '<html><script>_n.ctx.r={"total":5,"other":"data",'
+    '"items":[{"id":"POLYCARD","state":"VISIBLE",'
+    '"polycard":{"unique_id":"abc123","metadata":{"id":"MLA9999999999",'
+    '"url":"auto.mercadolibre.com.ar/MLA-9999999999-toyota-corolla-_JM",'
+    '"category_id":"MLA1744","domain_id":"MLA-CARS_AND_VANS","item_position":"1"},'
+    '"pictures":{"pictures":[{"id":"123456-MLA00000000000_012025"}]},'
+    '"components":['
+    '{"type":"title","id":"title","title":{"text":"Toyota Corolla 1.8 Xei Cvt Pack"}},'
+    '{"type":"price","id":"price","price":{"current_price":{"value":15000000,"currency":"ARS"}}},'
+    '{"type":"attributes_list","id":"attributes_list","attributes_list":{"separator":"|","texts":["2020","50.000 Km"]}},'
+    '{"type":"location","id":"location","location":{"text":"Capital Federal - Capital Federal"}}'
+    ']}}]};</script></html>'
+)
+
+
 def test_fetch_page():
     mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "results": [SAMPLE_ML_RESULT],
-        "paging": {"total": 1, "offset": 0, "limit": 50},
-    }
+    mock_response.text = SAMPLE_HTML
     mock_response.raise_for_status = MagicMock()
 
     scraper = MercadoLibreScraper(usd_rate=1200.0)
-    with patch("scrapers.mercadolibre.requests.get", return_value=mock_response):
+    with patch.object(scraper.session, "get", return_value=mock_response):
         results, total = scraper.fetch_page(offset=0)
         assert len(results) == 1
-        assert total == 1
+        assert total == 5
         assert results[0]["brand"] == "Toyota"
+        assert results[0]["source_id"] == "MLA9999999999"
+        assert results[0]["year"] == 2020
+        assert results[0]["km"] == 50000
+        assert results[0]["price_ars"] == 15000000
+        assert results[0]["price_usd"] == 12500.0
+        assert "Capital Federal" in results[0]["location"]
