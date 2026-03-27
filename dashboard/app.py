@@ -1,4 +1,3 @@
-import sqlite3
 import sys
 import os
 import re
@@ -9,8 +8,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.travel_cost import estimate_travel_cost
 from core.analyzer import evaluate_listing
-
-DB_PATH = "autos.db"
+from db.database import get_database
 
 BA_PATTERN = re.compile(r"buenos aires|capital federal|caba|gba|ciudad aut", re.IGNORECASE)
 
@@ -24,10 +22,11 @@ def _is_local(location):
 
 @st.cache_data(ttl=60)
 def load_data():
-    conn = sqlite3.connect(DB_PATH)
-    listings = pd.read_sql_query("SELECT * FROM listings", conn)
-    references = pd.read_sql_query("SELECT * FROM market_reference", conn)
-    conn.close()
+    db = get_database()
+    db.init()
+    listings = pd.DataFrame(db.get_all_listings())
+    references = pd.DataFrame(db.get_market_references())
+    db.close()
 
     if listings.empty or references.empty:
         return listings, references, pd.DataFrame()
@@ -225,9 +224,17 @@ def _build_median_tooltip(row, all_data):
         for _, c in comps.iterrows():
             km_str = f"{int(c['km']):,} km" if pd.notna(c.get("km")) else "s/d km"
             src = c.get("source", "")
-            lines.append(
-                f'<div class="comp-line">USD {_fmt(c["price_usd"])} — {km_str} — {src}</div>'
-            )
+            comp_url = c.get("url", "") or ""
+            if comp_url:
+                lines.append(
+                    f'<div class="comp-line"><a href="{comp_url}" target="_blank" '
+                    f'style="color:#1a6dcc;text-decoration:none">'
+                    f'USD {_fmt(c["price_usd"])} — {km_str} — {src}</a></div>'
+                )
+            else:
+                lines.append(
+                    f'<div class="comp-line">USD {_fmt(c["price_usd"])} — {km_str} — {src}</div>'
+                )
 
     sample = row.get("sample_count", 0)
     if sample:

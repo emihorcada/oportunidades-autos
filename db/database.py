@@ -1,8 +1,25 @@
+"""
+Database layer — supports both local SQLite and Supabase (REST API).
+
+Set environment variable SUPABASE_URL and SUPABASE_KEY to use Supabase.
+If not set, falls back to local SQLite.
+"""
+
+import os
 import sqlite3
-from datetime import datetime
+import requests
 
 
-class Database:
+def get_database():
+    """Factory: return the right database backend."""
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    if supabase_url and supabase_key:
+        return SupabaseDatabase(supabase_url, supabase_key)
+    return SQLiteDatabase()
+
+
+class SQLiteDatabase:
     def __init__(self, db_path="autos.db"):
         self.db_path = db_path
         self.conn = None
@@ -10,9 +27,6 @@ class Database:
     def init(self):
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
-        self._create_tables()
-
-    def _create_tables(self):
         self.conn.executescript("""
             CREATE TABLE IF NOT EXISTS listings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +51,6 @@ class Database:
                 published_days_ago INTEGER,
                 UNIQUE(source, source_id)
             );
-
             CREATE TABLE IF NOT EXISTS market_reference (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 brand TEXT NOT NULL,
@@ -72,7 +85,6 @@ class Database:
         self.conn.commit()
 
     def update_aging(self, source, source_id, published_days_ago):
-        """Update the published_days_ago for a specific listing."""
         self.conn.execute(
             "UPDATE listings SET published_days_ago = ? WHERE source = ? AND source_id = ?",
             (published_days_ago, source, source_id),
@@ -105,3 +117,130 @@ class Database:
     def close(self):
         if self.conn:
             self.conn.close()
+
+
+class SupabaseDatabase:
+    """Supabase backend using the PostgREST API."""
+
+    def __init__(self, url, key):
+        self.base = url.rstrip("/")
+        self.headers = {
+            "apikey": key,
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "Prefer": "resolution=merge-duplicates,return=minimal",
+        }
+
+    def init(self):
+        pass  # Tables created via SQL Editor in Supabase dashboard
+
+    def _post(self, table, data):
+        resp = requests.post(
+            f"{self.base}/rest/v1/{table}",
+            headers=self.headers,
+            json=data,
+            timeout=30,
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise Exception(f"Supabase POST {table} failed ({resp.status_code}): {resp.text}")
+
+    def _patch(self, table, match_params, data):
+        params = "&".join(f"{k}=eq.{v}" for k, v in match_params.items())
+        resp = requests.patch(
+            f"{self.base}/rest/v1/{table}?{params}",
+            headers=self.headers,
+            json=data,
+            timeout=30,
+        )
+        if resp.status_code not in (200, 204):
+            raise Exception(f"Supabase PATCH {table} failed ({resp.status_code}): {resp.text}")
+
+    def _get(self, table, select="*", params=None):
+        url = f"{self.base}/rest/v1/{table}?select={select}"
+        if params:
+            url += "&" + "&".join(f"{k}={v}" for k, v in params.items())
+        resp = requests.get(url, headers=self.headers, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def upsert_listing(self, listing):
+        row = {
+            "source": listing["source"],
+            "source_id": listing["source_id"],
+            "url": listing.get("url", ""),
+            "brand": listing["brand"],
+            "model": listing["model"],
+            "version": listing.get("version", ""),
+            "year": listing["year"],
+            "km": listing.get("km"),
+            "price_ars": listing.get("price_ars"),
+            "price_usd": listing.get("price_usd"),
+            "currency_original": listing.get("currency_original", ""),
+            "location": listing.get("location", ""),
+            "category": listing.get("category"),
+            "transmission": listing.get("transmission", ""),
+            "fuel": listing.get("fuel", ""),
+            "image_url": listing.get("image_url", ""),
+        }
+        # Use on_conflict to upsert
+        resp = requests.post(
+            f"{self.base}/rest/v1/listings?on_conflict=source,source_id",
+            headers={
+                **self.headers,
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            },
+            json=row,
+            timeout=30,
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise Exception(f"Supabase upsert listings failed ({resp.status_code}): {resp.text}")
+
+    def update_aging(self, source, source_id, published_days_ago):
+        self._patch(
+            "listings",
+            {"source": source, "source_id": source_id},
+            {"published_days_ago": published_days_ago},
+        )
+
+    def get_all_listings(self):
+        # Supabase paginates at 1000 rows by default
+        all_rows = []
+        offset = 0
+        while True:
+            rows = self._get("listings", params={
+                "limit": "1000",
+                "offset": str(offset),
+            })
+            all_rows.extend(rows)
+            if len(rows) < 1000:
+                break
+            offset += 1000
+        return all_rows
+
+    def save_market_reference(self, ref):
+        row = {
+            "brand": ref["brand"],
+            "model": ref["model"],
+            "year": ref["year"],
+            "median_price_usd": ref["median_price_usd"],
+            "sample_count": ref["sample_count"],
+            "min_price_usd": ref["min_price_usd"],
+            "max_price_usd": ref["max_price_usd"],
+        }
+        resp = requests.post(
+            f"{self.base}/rest/v1/market_reference?on_conflict=brand,model,year",
+            headers={
+                **self.headers,
+                "Prefer": "resolution=merge-duplicates,return=minimal",
+            },
+            json=row,
+            timeout=30,
+        )
+        if resp.status_code not in (200, 201, 204):
+            raise Exception(f"Supabase upsert market_reference failed ({resp.status_code}): {resp.text}")
+
+    def get_market_references(self):
+        return self._get("market_reference")
+
+    def close(self):
+        pass  # No persistent connection

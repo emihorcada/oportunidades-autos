@@ -3,7 +3,7 @@ import sys
 from core.exchange_rate import get_usd_blue_rate
 from core.analyzer import analyze_listings, find_opportunities, categorize
 from core.aging import fetch_aging_days
-from db.database import Database
+from db.database import get_database
 from scrapers.mercadolibre import MercadoLibreScraper
 from scrapers.autocosmos import AutocosmosScraper
 from scrapers.demotores import DeMotoresScraper
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    db = Database()
+    db = get_database()
     db.init()
 
     # Step 1: Get exchange rate
