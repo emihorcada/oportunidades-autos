@@ -1,8 +1,25 @@
 import sqlite3
+import sys
+import os
+import re
+
 import streamlit as st
 import pandas as pd
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.travel_cost import estimate_travel_cost
+from core.analyzer import evaluate_listing
+
 DB_PATH = "autos.db"
+
+BA_PATTERN = re.compile(r"buenos aires|capital federal|caba|gba|ciudad aut", re.IGNORECASE)
+
+
+def _is_local(location):
+    """CABA or Buenos Aires province = local, no travel cost."""
+    if not location:
+        return True
+    return bool(BA_PATTERN.search(location))
 
 
 @st.cache_data(ttl=60)
@@ -15,17 +32,310 @@ def load_data():
     if listings.empty or references.empty:
         return listings, references, pd.DataFrame()
 
-    merged = listings.merge(
-        references[["brand", "model", "year", "median_price_usd", "sample_count"]],
-        on=["brand", "model", "year"],
-        how="left",
-    )
-    merged["potential_profit_usd"] = merged["median_price_usd"] - merged["price_usd"]
+    # Evaluate each listing with the smart analyzer (version/transmission/km aware)
+    listings_dicts = listings.to_dict("records")
+    eval_results = []
+    for lst in listings_dicts:
+        result = evaluate_listing(lst, listings_dicts)
+        if result:
+            eval_results.append({**lst, **result})
+        else:
+            eval_results.append({**lst, "median_price_usd": None, "potential_profit_usd": None,
+                                 "sample_count": None, "group_level": None, "category": None})
+
+    merged = pd.DataFrame(eval_results)
+
+    # Travel costs: only for locations outside CABA/Buenos Aires
+    def _get_travel(loc):
+        if _is_local(loc):
+            return {"total_usd": 0, "detail": "Local (CABA/Bs.As.)", "needs_travel": False}
+        return estimate_travel_cost(loc)
+
+    travel_data = merged["location"].fillna("").apply(_get_travel)
+    merged["travel_cost_usd"] = travel_data.apply(lambda x: x["total_usd"])
+    merged["travel_detail"] = travel_data.apply(lambda x: x["detail"])
+    merged["needs_travel"] = travel_data.apply(lambda x: x["needs_travel"])
+
+    # Net profit and suggested sale price
+    merged["net_profit_usd"] = merged["potential_profit_usd"] - merged["travel_cost_usd"]
+    merged["suggested_price_usd"] = (merged["median_price_usd"] * 0.95).round(0)
+
     return listings, references, merged
+
+
+def _build_css():
+    return """
+    <style>
+    * { font-family: Arial, Helvetica, sans-serif; }
+    .opp-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        background: #ffffff;
+        color: #222;
+    }
+    .opp-table th {
+        background: #f5f5f5;
+        padding: 10px 10px;
+        text-align: left;
+        border-bottom: 2px solid #ddd;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        font-size: 12px;
+        color: #333;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .opp-table td {
+        padding: 7px 10px;
+        border-bottom: 1px solid #eee;
+        vertical-align: middle;
+    }
+    .opp-table tr:hover {
+        background: #f9f9f9;
+    }
+    /* Thumbnail */
+    .thumb-wrap {
+        position: relative;
+        display: inline-block;
+        cursor: pointer;
+    }
+    .thumb-wrap img {
+        width: 72px;
+        height: 50px;
+        object-fit: cover;
+        border-radius: 4px;
+        border: 1px solid #ddd;
+        transition: transform 0.2s;
+    }
+    .thumb-wrap:hover img {
+        transform: scale(5);
+        position: fixed;
+        z-index: 9999;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+        border-radius: 8px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 400px;
+        height: auto;
+        max-height: 80vh;
+        object-fit: contain;
+    }
+    /* Generic tooltip */
+    .tip {
+        position: relative;
+        cursor: help;
+        border-bottom: 1px dotted #999;
+    }
+    .tip .tip-text {
+        visibility: hidden;
+        opacity: 0;
+        background: #fff;
+        color: #222;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 10px 14px;
+        position: absolute;
+        z-index: 200;
+        bottom: 130%;
+        left: 50%;
+        transform: translateX(-50%);
+        white-space: nowrap;
+        font-size: 12px;
+        box-shadow: 0 3px 12px rgba(0,0,0,0.15);
+        transition: opacity 0.15s;
+        line-height: 1.6;
+    }
+    .tip:hover .tip-text {
+        visibility: visible;
+        opacity: 1;
+    }
+    /* Wide tooltip for median */
+    .tip .tip-wide {
+        white-space: normal;
+        width: 320px;
+        text-align: left;
+    }
+    .profit-positive { color: #1a8a4a; font-weight: bold; }
+    .profit-negative { color: #cc3333; font-weight: bold; }
+    .suggested-price { color: #1a6dcc; font-weight: 600; }
+    .local-badge { color: #999; font-size: 11px; }
+    .comp-line { margin: 2px 0; padding: 2px 0; border-bottom: 1px solid #eee; }
+    .comp-header { font-weight: 700; margin-bottom: 4px; color: #555; }
+    </style>
+    """
+
+
+def _fmt(val):
+    if val is None or pd.isna(val):
+        return "—"
+    return f"{val:,.0f}"
+
+
+def _build_median_tooltip(row, all_data):
+    """Build hover content showing comparable listings above this price."""
+    brand = row.get("brand", "")
+    model = row.get("model", "")
+    year = row.get("year")
+    price = row.get("price_usd", 0)
+    median = row.get("median_price_usd", 0)
+
+    if not brand or not model or not year:
+        return ""
+
+    # Find comparable listings (same brand+model+year, priced above this one)
+    comps = all_data[
+        (all_data["brand"] == brand) &
+        (all_data["model"] == model) &
+        (all_data["year"] == year) &
+        (all_data["price_usd"] > price)
+    ].sort_values("price_usd").head(5)
+
+    group_level = row.get("group_level", "")
+    level_label = {
+        "versión + km": "misma versión, km similares",
+        "transmisión + km": "misma transmisión, km similares",
+        "modelo + km": "mismo modelo, km similares",
+        "modelo": "mismo modelo (cualquier km)",
+    }.get(group_level, group_level or "—")
+
+    lines = [f'<div class="comp-header">Este auto: USD {_fmt(price)}</div>']
+    lines.append(f'<div class="comp-header">Referencia: USD {_fmt(median)}</div>')
+    lines.append(f'<div style="color:#666;font-size:11px;margin-bottom:4px">Comparado por: {level_label}</div>')
+    lines.append(f'<div style="color:#666;font-size:11px;margin-bottom:4px">Se descartó el 20% más caro</div>')
+    lines.append('<div style="margin-top:4px; font-weight:600; color:#1a8a4a">Otros similares publicados:</div>')
+
+    if comps.empty:
+        lines.append('<div class="comp-line" style="color:#999">Sin datos comparables</div>')
+    else:
+        for _, c in comps.iterrows():
+            km_str = f"{int(c['km']):,} km" if pd.notna(c.get("km")) else "s/d km"
+            src = c.get("source", "")
+            lines.append(
+                f'<div class="comp-line">USD {_fmt(c["price_usd"])} — {km_str} — {src}</div>'
+            )
+
+    sample = row.get("sample_count", 0)
+    if sample:
+        lines.append(f'<div style="margin-top:4px;color:#999;font-size:11px">Basado en {int(sample)} publicaciones</div>')
+
+    return "".join(lines)
+
+
+def _build_opportunities_table(df, all_data):
+    rows = []
+    for _, row in df.iterrows():
+        img_url = row.get("image_url", "") or ""
+        url = row.get("url", "") or ""
+        brand = row.get("brand", "")
+        model = row.get("model", "")
+        version = row.get("version", "")
+        year = int(row["year"]) if pd.notna(row.get("year")) else ""
+        km = _fmt(row.get("km"))
+        price_usd = _fmt(row.get("price_usd"))
+        median_usd = _fmt(row.get("median_price_usd"))
+        location = row.get("location", "")
+        source = row.get("source", "")
+        category = row.get("category", "")
+        travel_cost = row.get("travel_cost_usd", 0)
+        travel_detail = row.get("travel_detail", "")
+        needs_travel = row.get("needs_travel", False)
+        net_profit = row.get("net_profit_usd", 0)
+        suggested = _fmt(row.get("suggested_price_usd"))
+
+        # Photo
+        if img_url:
+            photo_html = f'<a href="{url}" target="_blank" class="thumb-wrap"><img src="{img_url}" alt="{brand} {model}"></a>'
+        else:
+            photo_html = '<span style="color:#aaa">Sin foto</span>'
+
+        # Median with tooltip
+        median_tip = _build_median_tooltip(row, all_data)
+        median_html = f'<span class="tip">USD {median_usd}<span class="tip-text tip-wide">{median_tip}</span></span>'
+
+        # Travel cost
+        if needs_travel and travel_cost > 0:
+            travel_html = f'<span class="tip">USD {travel_cost:,.0f}<span class="tip-text">{travel_detail}</span></span>'
+        else:
+            travel_html = '<span class="local-badge">—</span>'
+
+        # Net profit
+        profit_class = "profit-positive" if net_profit >= 1000 else "profit-negative"
+        profit_html = f'<span class="{profit_class}">USD {_fmt(net_profit)}</span>'
+
+        # Suggested sale price
+        suggested_html = f'<span class="suggested-price">USD {suggested}</span>'
+
+        # Source with link
+        source_html = f'<a href="{url}" target="_blank" style="color:#1a6dcc;text-decoration:none">{source}</a>'
+
+        rows.append(f"""
+        <tr>
+            <td>{photo_html}</td>
+            <td><b>{brand}</b></td>
+            <td>{model} {version}</td>
+            <td>{year}</td>
+            <td>{km}</td>
+            <td>USD {price_usd}</td>
+            <td>{median_html}</td>
+            <td>{suggested_html}</td>
+            <td>{profit_html}</td>
+            <td>{location}</td>
+            <td>{travel_html}</td>
+            <td>{category}</td>
+            <td>{source_html}</td>
+        </tr>""")
+
+    rows_html = "".join(rows)
+    return f"""
+    <div style="max-height: 720px; overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
+    <table class="opp-table">
+        <thead>
+            <tr>
+                <th>Foto</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Año</th>
+                <th>Km</th>
+                <th>Precio</th>
+                <th>Mediana</th>
+                <th>Venderlo a</th>
+                <th>Ganancia Neta</th>
+                <th>Ubicación</th>
+                <th>Costo Viaje</th>
+                <th>Categoría</th>
+                <th>Fuente</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+    </div>
+    """
 
 
 def main():
     st.set_page_config(page_title="Detector de Oportunidades", layout="wide")
+
+    # Force light theme via custom CSS
+    st.html("""
+    <style>
+    * { font-family: Arial, Helvetica, sans-serif !important; }
+    [data-testid="stSidebar"] { font-family: Arial, Helvetica, sans-serif !important; }
+    /* Black accent for sliders/inputs instead of red */
+    [data-testid="stSlider"] > div > div > div > div {
+        background-color: #333 !important;
+    }
+    div[data-baseweb="select"] > div {
+        border-color: #333 !important;
+    }
+    </style>
+    """)
+
     st.title("Detector de Oportunidades de Autos")
 
     listings_df, references_df, merged_df = load_data()
@@ -61,7 +371,7 @@ def main():
     price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
     price_range = st.sidebar.slider("Precio USD", 0, price_max_val, (0, price_max_val))
 
-    min_profit = st.sidebar.slider("Ganancia mínima USD", 500, 10000, 1000, step=250)
+    min_profit = st.sidebar.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250)
 
     sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
     selected_source = st.sidebar.selectbox("Fuente", sources)
@@ -91,9 +401,9 @@ def main():
     elif location_filter == "Otras provincias":
         df = df[~df["location"].str.contains("Buenos Aires|Capital Federal|CABA|GBA", case=False, na=False)]
 
-    # --- Opportunities ---
-    opportunities = df[df["potential_profit_usd"] >= min_profit].sort_values(
-        "potential_profit_usd", ascending=False
+    # --- Opportunities (using net profit) ---
+    opportunities = df[df["net_profit_usd"] >= min_profit].sort_values(
+        "net_profit_usd", ascending=False
     )
 
     # --- Metrics ---
@@ -105,7 +415,7 @@ def main():
         best = opportunities.iloc[0]
         col3.metric(
             "Mejor Oportunidad",
-            f"USD {best['potential_profit_usd']:,.0f}",
+            f"USD {best['net_profit_usd']:,.0f}",
             f"{best['brand']} {best['model']} {best['year']}"
         )
     else:
@@ -118,36 +428,9 @@ def main():
     st.subheader(f"Oportunidades ({len(opportunities)})")
 
     if not opportunities.empty:
-        display_cols = [
-            "brand", "model", "version", "year", "km",
-            "price_usd", "price_ars", "median_price_usd",
-            "potential_profit_usd", "location", "source",
-            "transmission", "fuel", "category", "url",
-        ]
-        display_df = opportunities[
-            [c for c in display_cols if c in opportunities.columns]
-        ].reset_index(drop=True)
-
-        display_df.columns = [
-            "Marca", "Modelo", "Versión", "Año", "Km",
-            "Precio USD", "Precio ARS", "Mediana USD",
-            "Ganancia USD", "Ubicación", "Fuente",
-            "Transmisión", "Combustible", "Categoría", "Link",
-        ][:len(display_df.columns)]
-
-        st.dataframe(
-            display_df,
-            column_config={
-                "Link": st.column_config.LinkColumn("Link"),
-                "Precio USD": st.column_config.NumberColumn(format="$%,.0f"),
-                "Precio ARS": st.column_config.NumberColumn(format="$%,.0f"),
-                "Mediana USD": st.column_config.NumberColumn(format="$%,.0f"),
-                "Ganancia USD": st.column_config.NumberColumn(format="$%,.0f"),
-                "Km": st.column_config.NumberColumn(format="%,d"),
-            },
-            use_container_width=True,
-            hide_index=True,
-        )
+        css = _build_css()
+        table_html = _build_opportunities_table(opportunities, merged_df)
+        st.html(css + table_html)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
 
@@ -164,9 +447,9 @@ def main():
             st.dataframe(
                 ref_display,
                 column_config={
-                    "Mediana USD": st.column_config.NumberColumn(format="$%,.0f"),
-                    "Mín USD": st.column_config.NumberColumn(format="$%,.0f"),
-                    "Máx USD": st.column_config.NumberColumn(format="$%,.0f"),
+                    "Mediana USD": st.column_config.NumberColumn(format="%.0f"),
+                    "Mín USD": st.column_config.NumberColumn(format="%.0f"),
+                    "Máx USD": st.column_config.NumberColumn(format="%.0f"),
                 },
                 use_container_width=True,
                 hide_index=True,
@@ -175,6 +458,66 @@ def main():
         with tab2:
             source_counts = listings_df["source"].value_counts()
             st.bar_chart(source_counts)
+
+    # --- Methodology ---
+    st.subheader("Metodología")
+    st.html("""
+    <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.8; max-width: 800px; font-size: 14px;">
+
+    <h4 style="margin-top: 0;">1. Fuentes de datos</h4>
+    <p>Se relevan publicaciones de <b>MercadoLibre</b> y <b>Autocosmos</b> para autos desde 2016 en Argentina.
+    Se descartan publicaciones con precio menor a USD 2.000 (spam o consultas).</p>
+
+    <h4>2. Agrupación inteligente (grupo de comparación)</h4>
+    <p>Cada auto se compara contra un <b>grupo de pares</b> usando una lógica en cascada:</p>
+    <ol>
+        <li><b>Versión + km similares</b> — Mismo modelo, misma versión exacta (ej: "XEI 1.8 CVT"),
+            y kilómetros dentro de ±20.000 km. Se usa si hay al menos 3 pares.</li>
+        <li><b>Transmisión + km similares</b> — Si no hay suficientes de la misma versión,
+            se agrupa por tipo de caja (manual/automática) con ±20.000 km.</li>
+        <li><b>Modelo + km similares</b> — Mismo modelo y año, ±20.000 km, sin filtrar por versión.</li>
+        <li><b>Modelo solo</b> — Último recurso: mismo modelo y año, cualquier kilometraje.</li>
+    </ol>
+
+    <h4>3. Filtro de precios inflados</h4>
+    <p>Dentro del grupo de comparación, se <b>descarta el 20% más caro</b> antes de calcular la referencia.
+    Esto elimina publicaciones con precios inflados que nunca se concretan.</p>
+
+    <h4>4. Precio de referencia (Mediana)</h4>
+    <p>Se calcula la <b>mediana</b> del grupo filtrado. La mediana es más robusta que el promedio:
+    no se distorsiona con valores extremos.</p>
+
+    <h4>5. Precio sugerido de venta ("Venderlo a")</h4>
+    <p>Se calcula como el <b>95% de la mediana</b>: un precio competitivo que permite venta rápida
+    sin regalar ganancia. Ejemplo: si la mediana es USD 20.000, el precio sugerido es USD 19.000.</p>
+
+    <h4>6. Costo de viaje</h4>
+    <p>Para autos en <b>CABA o provincia de Buenos Aires</b>, el costo de viaje es $0 (local).</p>
+    <p>Para autos en otras provincias se estima:</p>
+    <ul>
+        <li><b>Transporte de ida</b>: micro (hasta 800 km) o avión (más de 800 km)</li>
+        <li><b>Hotel</b>: 1 noche (USD 35) si la distancia supera 400 km</li>
+        <li><b>Nafta de vuelta</b>: distancia × 10L/100km × USD 1/litro</li>
+    </ul>
+
+    <h4>7. Ganancia neta</h4>
+    <p><b>Ganancia neta = Mediana − Precio publicado − Costo de viaje</b></p>
+    <p>Un auto es <b>oportunidad</b> si la ganancia neta es ≥ USD 1.000.</p>
+
+    <h4>8. Categorías</h4>
+    <ul>
+        <li><b>Alta gama</b>: mediana del grupo > USD 30.000</li>
+        <li><b>Media</b>: mediana entre USD 10.000 y USD 30.000</li>
+        <li><b>Baja</b>: mediana < USD 10.000</li>
+    </ul>
+
+    <h4>9. Conversión de moneda</h4>
+    <p>Precios en ARS se convierten a USD usando el <b>dólar blue</b> (venta) de
+    <a href="https://dolarapi.com" target="_blank" style="color:#1a6dcc">dolarapi.com</a>,
+    consultado al momento del scraping.</p>
+
+    </div>
+    """)
 
 
 if __name__ == "__main__":

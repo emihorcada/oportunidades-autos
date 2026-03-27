@@ -77,14 +77,16 @@ def main():
     for ref in references:
         db.save_market_reference(ref)
 
-    # Step 5: Report opportunities
-    opportunities = find_opportunities(all_listings, references, min_diff_usd=1000)
+    # Step 5: Report opportunities (new API: no references arg needed)
+    opportunities = find_opportunities(all_listings, min_diff_usd=1000)
     logger.info(f"Opportunities found: {len(opportunities)}")
     for opp in opportunities[:10]:
         logger.info(
-            f"  {opp['brand']} {opp['model']} {opp['year']} - "
-            f"USD {opp['price_usd']:,.0f} (median: USD {opp['median_price_usd']:,.0f}, "
-            f"profit: USD {opp['potential_profit_usd']:,.0f}) - {opp['source']}"
+            f"  {opp['brand']} {opp['model']} {opp.get('version','')} {opp['year']} "
+            f"{opp.get('km','?')}km - "
+            f"USD {opp['price_usd']:,.0f} (ref: USD {opp['median_price_usd']:,.0f}, "
+            f"profit: USD {opp['potential_profit_usd']:,.0f}, "
+            f"group: {opp.get('group_level','?')}) - {opp['source']}"
         )
 
     db.close()
