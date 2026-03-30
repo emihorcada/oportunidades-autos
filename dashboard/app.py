@@ -28,10 +28,11 @@ def load_data():
     db.init()
     listings = pd.DataFrame(db.get_all_listings())
     references = pd.DataFrame(db.get_market_references())
+    price_history = pd.DataFrame(db.get_price_history())
     db.close()
 
     if listings.empty or references.empty:
-        return listings, references, pd.DataFrame()
+        return listings, references, pd.DataFrame(), price_history
 
     # Evaluate each listing with the smart analyzer (version/transmission/km aware)
     listings_dicts = listings.to_dict("records")
@@ -67,7 +68,7 @@ def load_data():
     else:
         merged["aging_days"] = None
 
-    return listings, references, merged
+    return listings, references, merged, price_history
 
 
 def _build_css():
@@ -245,7 +246,59 @@ def _build_median_tooltip(row, all_data):
     return "".join(lines)
 
 
-def _build_opportunities_table(df, all_data):
+def _build_price_change_html(source, source_id, price_history_df):
+    """Build HTML for price change indicator with hover history."""
+    if price_history_df.empty:
+        return '<span style="color:#999;font-size:11px">—</span>'
+
+    history = price_history_df[
+        (price_history_df["source"] == source) &
+        (price_history_df["source_id"] == source_id)
+    ]
+
+    if history.empty:
+        return '<span style="color:#999;font-size:11px">—</span>'
+
+    # Latest change
+    latest = history.iloc[0]
+    pct = latest.get("change_pct", 0) or 0
+
+    if pct < 0:
+        color = "#1a8a4a"
+        arrow = "↓"
+    elif pct > 0:
+        color = "#cc3333"
+        arrow = "↑"
+    else:
+        return '<span style="color:#999;font-size:11px">—</span>'
+
+    # Build history tooltip
+    lines = []
+    for _, h in history.iterrows():
+        date = str(h.get("recorded_at", ""))[:10]
+        old_p = h.get("price_usd_old", 0) or 0
+        new_p = h.get("price_usd_new", 0) or 0
+        ch = h.get("change_pct", 0) or 0
+        ch_color = "#1a8a4a" if ch < 0 else "#cc3333"
+        lines.append(
+            f'<div style="padding:2px 0;border-bottom:1px solid #eee">'
+            f'{date}: USD {old_p:,.0f} → USD {new_p:,.0f} '
+            f'<span style="color:{ch_color}">({ch:+.1f}%)</span></div>'
+        )
+    tip_content = "".join(lines)
+
+    label = f"{arrow} {abs(pct):.0f}%"
+    return (
+        f'<span class="tip" style="color:{color};font-weight:bold">{label}'
+        f'<span class="tip-box">'
+        f'<div style="font-weight:700;margin-bottom:4px">Historial de precio</div>'
+        f'{tip_content}</span></span>'
+    )
+
+
+def _build_opportunities_table(df, all_data, price_history_df=None):
+    if price_history_df is None:
+        price_history_df = pd.DataFrame()
     rows = []
     for _, row in df.iterrows():
         img_url = row.get("image_url", "") or ""
@@ -294,6 +347,9 @@ def _build_opportunities_table(df, all_data):
         # Suggested sale price
         suggested_html = f'<span class="suggested-price">USD {suggested}</span>'
 
+        # Price change indicator
+        price_change_html = _build_price_change_html(source, row.get("source_id", ""), price_history_df)
+
         # Aging
         aging_raw = row.get("aging_days")
         if aging_raw is None or pd.isna(aging_raw):
@@ -320,6 +376,7 @@ def _build_opportunities_table(df, all_data):
             <td>{year}</td>
             <td>{km}</td>
             <td>USD {price_usd}</td>
+            <td>{price_change_html}</td>
             <td>{median_html}</td>
             <td>{suggested_html}</td>
             <td>{profit_html}</td>
@@ -342,6 +399,7 @@ def _build_opportunities_table(df, all_data):
                 <th>Año</th>
                 <th>Km</th>
                 <th>Precio</th>
+                <th>Var.</th>
                 <th>Mediana</th>
                 <th>Venderlo a</th>
                 <th>Ganancia Neta</th>
@@ -369,12 +427,12 @@ def _run_scraper():
     db = get_database()
     db.init()
 
-    progress = st.sidebar.progress(0, text="Obteniendo tipo de cambio...")
+    progress = st.progress(0, text="Obteniendo tipo de cambio...")
 
     try:
         usd_rate = get_usd_blue_rate()
     except Exception as e:
-        st.sidebar.error(f"Error obteniendo dólar: {e}")
+        st.error(f"Error obteniendo dólar: {e}")
         return
 
     progress.progress(10, text=f"Dólar blue: ${usd_rate:,.0f}")
@@ -387,7 +445,7 @@ def _run_scraper():
         ml_listings = ml.scrape_all()
         all_listings.extend(ml_listings)
     except Exception as e:
-        st.sidebar.warning(f"MercadoLibre falló: {e}")
+        st.warning(f"MercadoLibre falló: {e}")
 
     progress.progress(45, text=f"ML: {len(all_listings)} listings. Scrapeando Autocosmos...")
 
@@ -397,7 +455,7 @@ def _run_scraper():
         ac_listings = ac.scrape_all()
         all_listings.extend(ac_listings)
     except Exception as e:
-        st.sidebar.warning(f"Autocosmos falló: {e}")
+        st.warning(f"Autocosmos falló: {e}")
 
     progress.progress(70, text=f"Total: {len(all_listings)} listings. Filtrando...")
 
@@ -408,10 +466,11 @@ def _run_scraper():
     references = analyze_listings(all_listings)
     ref_map = {(r["brand"], r["model"], r["year"]): r for r in references}
 
-    progress.progress(75, text="Guardando en base de datos...")
+    progress.progress(75, text="Detectando cambios de precio y guardando...")
 
-    # Save to DB
+    # Save to DB with price change detection
     saved = 0
+    price_changes = 0
     for listing in all_listings:
         if not listing.get("year") or not listing.get("brand") or not listing.get("model"):
             continue
@@ -419,6 +478,23 @@ def _run_scraper():
         ref = ref_map.get(key)
         if ref:
             listing["category"] = categorize(ref["median_price_usd"])
+
+        # Detect price change
+        new_usd = listing.get("price_usd")
+        if new_usd:
+            existing = db.get_listing(listing["source"], listing["source_id"])
+            if existing and existing.get("price_usd"):
+                old_usd = existing["price_usd"]
+                if abs(old_usd - new_usd) > 1:
+                    change_pct = round((new_usd - old_usd) / old_usd * 100, 1)
+                    db.log_price_change(
+                        listing["source"], listing["source_id"],
+                        old_usd, new_usd,
+                        existing.get("price_ars"), listing.get("price_ars"),
+                        change_pct,
+                    )
+                    price_changes += 1
+
         db.upsert_listing(listing)
         saved += 1
 
@@ -437,7 +513,7 @@ def _run_scraper():
         time.sleep(1.5)
 
     db.close()
-    progress.progress(100, text=f"Listo! {saved} listings, {len(opportunities)} oportunidades")
+    progress.progress(100, text=f"Listo! {saved} listings, {len(opportunities)} oportunidades, {price_changes} cambios de precio")
     time.sleep(2)
     progress.empty()
 
@@ -460,7 +536,7 @@ def main():
 
     st.title("Detector de Oportunidades de Autos")
 
-    listings_df, references_df, merged_df = load_data()
+    listings_df, references_df, merged_df, price_history_df = load_data()
 
     # --- Main tabs ---
     main_tabs = st.tabs(["Oportunidades", "Calculadora de Precio", "Análisis de Mercado", "Metodología"])
@@ -471,7 +547,7 @@ def main():
     with main_tabs[0]:
         if merged_df.empty:
             st.warning("No hay datos. Clickeá 'Actualizar datos'.")
-        _render_opportunities_tab(listings_df, references_df, merged_df)
+        _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df)
 
     # ================================================================
     # TAB 2: CALCULADORA DE PRECIO
@@ -496,7 +572,7 @@ def main():
         _render_methodology()
 
 
-def _render_opportunities_tab(listings_df, references_df, merged_df):
+def _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df):
     # --- Update button ---
     btn_col1, btn_col2 = st.columns([6, 1])
     with btn_col2:
@@ -598,7 +674,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df):
 
     if not opportunities.empty:
         css = _build_css()
-        table_html = _build_opportunities_table(opportunities, merged_df)
+        table_html = _build_opportunities_table(opportunities, merged_df, price_history_df)
         st.html(css + table_html)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")

@@ -58,11 +58,12 @@ def main():
     references = analyze_listings(all_listings)
     logger.info(f"Market references calculated for {len(references)} model/year combos")
 
-    # Step 4: Assign categories and save to DB
+    # Step 4: Detect price changes, assign categories, and save to DB
     ref_map = {(r["brand"], r["model"], r["year"]): r for r in references}
 
     saved = 0
     skipped = 0
+    price_changes = 0
     for listing in all_listings:
         if not listing.get("year") or not listing.get("brand") or not listing.get("model"):
             skipped += 1
@@ -71,9 +72,31 @@ def main():
         ref = ref_map.get(key)
         if ref:
             listing["category"] = categorize(ref["median_price_usd"])
+
+        # Check for price change vs existing listing
+        new_usd = listing.get("price_usd")
+        if new_usd:
+            existing = db.get_listing(listing["source"], listing["source_id"])
+            if existing and existing.get("price_usd"):
+                old_usd = existing["price_usd"]
+                if abs(old_usd - new_usd) > 1:  # ignore rounding diffs
+                    change_pct = round((new_usd - old_usd) / old_usd * 100, 1)
+                    db.log_price_change(
+                        listing["source"], listing["source_id"],
+                        old_usd, new_usd,
+                        existing.get("price_ars"), listing.get("price_ars"),
+                        change_pct,
+                    )
+                    price_changes += 1
+                    if change_pct < 0:
+                        logger.info(
+                            f"  PRICE DROP: {listing['brand']} {listing['model']} {listing['year']} "
+                            f"USD {old_usd:,.0f} -> USD {new_usd:,.0f} ({change_pct:+.1f}%)"
+                        )
+
         db.upsert_listing(listing)
         saved += 1
-    logger.info(f"Saved {saved} listings to DB ({skipped} skipped due to missing data)")
+    logger.info(f"Saved {saved} listings to DB ({skipped} skipped, {price_changes} price changes detected)")
 
     for ref in references:
         db.save_market_reference(ref)

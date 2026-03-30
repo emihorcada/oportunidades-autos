@@ -91,6 +91,33 @@ class SQLiteDatabase:
         )
         self.conn.commit()
 
+    def get_listing(self, source, source_id):
+        """Get a single listing by source + source_id."""
+        cursor = self.conn.execute(
+            "SELECT * FROM listings WHERE source = ? AND source_id = ?",
+            (source, source_id),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def log_price_change(self, source, source_id, old_usd, new_usd, old_ars, new_ars, change_pct):
+        self.conn.execute("""
+            INSERT INTO price_history (source, source_id, price_usd_old, price_usd_new,
+                price_ars_old, price_ars_new, change_pct)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (source, source_id, old_usd, new_usd, old_ars, new_ars, change_pct))
+        self.conn.commit()
+
+    def get_price_history(self, source=None, source_id=None):
+        if source and source_id:
+            cursor = self.conn.execute(
+                "SELECT * FROM price_history WHERE source = ? AND source_id = ? ORDER BY recorded_at DESC",
+                (source, source_id),
+            )
+        else:
+            cursor = self.conn.execute("SELECT * FROM price_history ORDER BY recorded_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_all_listings(self):
         cursor = self.conn.execute("SELECT * FROM listings")
         return [dict(row) for row in cursor.fetchall()]
@@ -201,6 +228,32 @@ class SupabaseDatabase:
             {"source": source, "source_id": source_id},
             {"published_days_ago": published_days_ago},
         )
+
+    def get_listing(self, source, source_id):
+        rows = self._get("listings", params={
+            "source": f"eq.{source}",
+            "source_id": f"eq.{source_id}",
+            "limit": "1",
+        })
+        return rows[0] if rows else None
+
+    def log_price_change(self, source, source_id, old_usd, new_usd, old_ars, new_ars, change_pct):
+        self._post("price_history", {
+            "source": source,
+            "source_id": source_id,
+            "price_usd_old": old_usd,
+            "price_usd_new": new_usd,
+            "price_ars_old": old_ars,
+            "price_ars_new": new_ars,
+            "change_pct": change_pct,
+        })
+
+    def get_price_history(self, source=None, source_id=None):
+        params = {"order": "recorded_at.desc"}
+        if source and source_id:
+            params["source"] = f"eq.{source}"
+            params["source_id"] = f"eq.{source_id}"
+        return self._get("price_history", params=params)
 
     def get_all_listings(self):
         # Supabase paginates at 1000 rows by default
