@@ -508,44 +508,44 @@ def _render_opportunities_tab(listings_df, references_df, merged_df):
     if merged_df.empty:
         return
 
-    # --- Filters inside expander ---
-    with st.expander("Filtros", expanded=False):
-        fc1, fc2, fc3, fc4 = st.columns(4)
+    # --- Filters ---
+    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
 
-        with fc1:
-            categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
-            selected_cat = st.selectbox("Categoría", categories, key="opp_cat")
+    with fc1:
+        categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
+        selected_cat = st.selectbox("Categoría", categories, key="opp_cat")
 
-            brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
-            selected_brand = st.selectbox("Marca", brands, key="opp_brand")
+        brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
+        selected_brand = st.selectbox("Marca", brands, key="opp_brand")
 
-        with fc2:
-            if selected_brand != "Todas":
-                models = ["Todos"] + sorted(
-                    merged_df[merged_df["brand"] == selected_brand]["model"].dropna().unique().tolist()
-                )
-            else:
-                models = ["Todos"] + sorted(merged_df["model"].dropna().unique().tolist())
-            selected_model = st.selectbox("Modelo", models, key="opp_model")
+    with fc2:
+        if selected_brand != "Todas":
+            models = ["Todos"] + sorted(
+                merged_df[merged_df["brand"] == selected_brand]["model"].dropna().unique().tolist()
+            )
+        else:
+            models = ["Todos"] + sorted(merged_df["model"].dropna().unique().tolist())
+        selected_model = st.selectbox("Modelo", models, key="opp_model")
 
-            sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
-            selected_source = st.selectbox("Fuente", sources, key="opp_source")
+        sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
+        selected_source = st.selectbox("Fuente", sources, key="opp_source")
 
-        with fc3:
-            year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
-            year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
-            year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
+    with fc3:
+        year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
+        year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
+        year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
 
-            km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
-            km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
+        km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
+        km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
 
-        with fc4:
-            price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
-            price_range = st.slider("Precio USD", 0, price_max_val, (0, price_max_val), key="opp_price")
+    with fc4:
+        price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
+        price_range = st.slider("Precio USD", 0, price_max_val, (0, price_max_val), key="opp_price")
 
-            min_profit = st.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250, key="opp_profit")
+        min_profit = st.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250, key="opp_profit")
 
-        location_filter = st.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"], horizontal=True, key="opp_loc")
+    with fc5:
+        location_filter = st.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"], key="opp_loc")
 
     # --- Apply Filters ---
     df = merged_df.copy()
