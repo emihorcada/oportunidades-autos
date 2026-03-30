@@ -266,15 +266,16 @@ def _build_opportunities_table(df, all_data):
         net_profit = row.get("net_profit_usd", 0)
         suggested = _fmt(row.get("suggested_price_usd"))
 
-        # Photo — click goes to listing
+        # Photo — click goes to listing, hide if broken
         if img_url:
             photo_html = (
                 f'<a href="{url}" target="_blank">'
                 f'<img style="width:72px;height:50px;object-fit:cover;border-radius:4px;border:1px solid #ddd" '
-                f'src="{img_url}" alt="{brand} {model}"></a>'
+                f'src="{img_url}" alt="{brand} {model}" '
+                f'onerror="this.style.display=\'none\';this.parentElement.innerHTML=\'<span style=color:#aaa;font-size:11px>Ver pub.</span>\'"></a>'
             )
         else:
-            photo_html = '<span style="color:#aaa">Sin foto</span>'
+            photo_html = f'<a href="{url}" target="_blank" style="color:#aaa;font-size:11px;text-decoration:none">Ver pub.</a>'
 
         # Median with tooltip
         median_tip = _build_median_tooltip(row, all_data)
