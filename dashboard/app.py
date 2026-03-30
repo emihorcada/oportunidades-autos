@@ -519,6 +519,7 @@ def _run_scraper():
 
 
 def main():
+    st.set_page_config(page_title="Detector de Oportunidades", layout="wide", initial_sidebar_state="collapsed")
 
     # Force light theme + full width
     st.html("""
