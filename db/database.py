@@ -22,8 +22,8 @@ def get_database():
     if not supabase_url:
         try:
             import streamlit as st
-            supabase_url = st.secrets.get("SUPABASE_URL")
-            supabase_key = st.secrets.get("SUPABASE_KEY")
+            supabase_url = st.secrets["SUPABASE_URL"]
+            supabase_key = st.secrets["SUPABASE_KEY"]
         except Exception:
             pass
 
