@@ -444,7 +444,7 @@ def _run_scraper():
 
 def main():
 
-    # Force light theme via custom CSS
+    # Force light theme + full width
     st.html("""
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
@@ -454,6 +454,7 @@ def main():
     div[data-baseweb="select"] > div {
         border-color: #333 !important;
     }
+    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; }
     </style>
     """)
 
