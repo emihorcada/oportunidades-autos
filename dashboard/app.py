@@ -22,8 +22,8 @@ def _is_local(location):
     return bool(BA_PATTERN.search(location))
 
 
-@st.cache_data(ttl=60)
-def load_data(_version=2):
+@st.cache_data(ttl=120)
+def load_data_v2():
     db = get_database()
     db.init()
     listings = pd.DataFrame(db.get_all_listings())
@@ -46,6 +46,10 @@ def load_data(_version=2):
                                  "sample_count": None, "group_level": None, "category": None})
 
     merged = pd.DataFrame(eval_results)
+
+    # Drop peer_prices column (lists can't be cached by Streamlit)
+    if "peer_prices" in merged.columns:
+        merged = merged.drop(columns=["peer_prices"])
 
     # Travel costs: only for locations outside CABA/Buenos Aires
     def _get_travel(loc):
@@ -537,7 +541,7 @@ def main():
 
     st.title("Detector de Oportunidades de Autos")
 
-    listings_df, references_df, merged_df, price_history_df = load_data()
+    listings_df, references_df, merged_df, price_history_df = load_data_v2()
 
     # --- Main tabs ---
     main_tabs = st.tabs(["Oportunidades", "Calculadora de Precio", "Análisis de Mercado", "Metodología"])
