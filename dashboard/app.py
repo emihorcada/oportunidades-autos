@@ -22,7 +22,6 @@ def _is_local(location):
     return bool(BA_PATTERN.search(location))
 
 
-@st.cache_data(ttl=120)
 def load_data_v2():
     db = get_database()
     db.init()
