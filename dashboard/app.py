@@ -458,21 +458,9 @@ def main():
     </style>
     """)
 
-    # --- Header ---
-    header_left, header_right = st.columns([4, 1])
-    with header_left:
-        st.title("Detector de Oportunidades de Autos")
-    with header_right:
-        st.write("")  # spacer
-        if st.button("Actualizar datos", type="primary", use_container_width=True):
-            _run_scraper()
-            st.cache_data.clear()
-            st.rerun()
+    st.title("Detector de Oportunidades de Autos")
 
     listings_df, references_df, merged_df = load_data()
-
-    if merged_df.empty:
-        st.warning("No hay datos. Clickeá 'Actualizar datos'.")
 
     # --- Main tabs ---
     main_tabs = st.tabs(["Oportunidades", "Calculadora de Precio", "Análisis de Mercado", "Metodología"])
@@ -482,9 +470,8 @@ def main():
     # ================================================================
     with main_tabs[0]:
         if merged_df.empty:
-            st.info("Sin datos.")
-        else:
-            _render_opportunities_tab(listings_df, references_df, merged_df)
+            st.warning("No hay datos. Clickeá 'Actualizar datos'.")
+        _render_opportunities_tab(listings_df, references_df, merged_df)
 
     # ================================================================
     # TAB 2: CALCULADORA DE PRECIO
@@ -510,6 +497,17 @@ def main():
 
 
 def _render_opportunities_tab(listings_df, references_df, merged_df):
+    # --- Update button ---
+    btn_col1, btn_col2 = st.columns([6, 1])
+    with btn_col2:
+        if st.button("Actualizar datos", type="primary", use_container_width=True):
+            _run_scraper()
+            st.cache_data.clear()
+            st.rerun()
+
+    if merged_df.empty:
+        return
+
     # --- Filters inside expander ---
     with st.expander("Filtros", expanded=False):
         fc1, fc2, fc3, fc4 = st.columns(4)
