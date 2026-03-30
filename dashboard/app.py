@@ -23,12 +23,19 @@ def _is_local(location):
 
 
 def load_data_v2():
-    db = get_database()
-    db.init()
-    listings = pd.DataFrame(db.get_all_listings())
-    references = pd.DataFrame(db.get_market_references())
-    price_history = pd.DataFrame(db.get_price_history())
-    db.close()
+    try:
+        db = get_database()
+        db.init()
+        listings = pd.DataFrame(db.get_all_listings())
+        references = pd.DataFrame(db.get_market_references())
+        try:
+            price_history = pd.DataFrame(db.get_price_history())
+        except Exception:
+            price_history = pd.DataFrame()
+        db.close()
+    except Exception as e:
+        st.error(f"Error conectando a la base de datos: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     if listings.empty or references.empty:
         return listings, references, pd.DataFrame(), price_history
