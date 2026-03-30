@@ -464,8 +464,7 @@ def main():
     listings_df, references_df, merged_df = load_data()
 
     if merged_df.empty:
-        st.warning("No hay datos. Ejecuta `python run_scraper.py` primero.")
-        return
+        st.warning("No hay datos. Clickeá 'Actualizar datos' en el sidebar.")
 
     # --- Sidebar: Update button ---
     st.sidebar.header("Actualizar")
@@ -476,6 +475,42 @@ def main():
 
     st.sidebar.divider()
 
+    # --- Main tabs ---
+    main_tabs = st.tabs(["Oportunidades", "Calculadora de Precio", "Análisis de Mercado", "Metodología"])
+
+    # ================================================================
+    # TAB 1: OPORTUNIDADES
+    # ================================================================
+    with main_tabs[0]:
+        if merged_df.empty:
+            st.info("Sin datos.")
+        else:
+            _render_opportunities_tab(listings_df, references_df, merged_df)
+
+    # ================================================================
+    # TAB 2: CALCULADORA DE PRECIO
+    # ================================================================
+    with main_tabs[1]:
+        if merged_df.empty:
+            st.info("Sin datos. Actualizá primero.")
+        else:
+            _render_price_calculator(merged_df)
+
+    # ================================================================
+    # TAB 3: ANÁLISIS DE MERCADO
+    # ================================================================
+    with main_tabs[2]:
+        if not references_df.empty:
+            _render_market_analysis(listings_df, references_df)
+
+    # ================================================================
+    # TAB 4: METODOLOGÍA
+    # ================================================================
+    with main_tabs[3]:
+        _render_methodology()
+
+
+def _render_opportunities_tab(listings_df, references_df, merged_df):
     # --- Sidebar Filters ---
     st.sidebar.header("Filtros")
 
@@ -566,33 +601,180 @@ def main():
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
 
-    # --- Market Analysis Tab ---
-    st.subheader("Análisis de Mercado")
 
-    if not references_df.empty:
-        tab1, tab2 = st.tabs(["Precios por Modelo", "Publicaciones por Fuente"])
+def _render_price_calculator(merged_df):
+    import numpy as np
 
-        with tab1:
-            ref_display = references_df.sort_values("median_price_usd", ascending=False)
-            ref_display = ref_display[["brand", "model", "year", "median_price_usd", "sample_count", "min_price_usd", "max_price_usd"]]
-            ref_display.columns = ["Marca", "Modelo", "Año", "Mediana USD", "Muestras", "Mín USD", "Máx USD"]
-            st.dataframe(
-                ref_display,
-                column_config={
-                    "Mediana USD": st.column_config.NumberColumn(format="%.0f"),
-                    "Mín USD": st.column_config.NumberColumn(format="%.0f"),
-                    "Máx USD": st.column_config.NumberColumn(format="%.0f"),
-                },
-                use_container_width=True,
-                hide_index=True,
-            )
+    st.subheader("Calculadora de Precio de Venta")
+    st.write("Ingresá los datos del auto que tu cliente quiere vender para calcular el precio sugerido.")
 
-        with tab2:
-            source_counts = listings_df["source"].value_counts()
-            st.bar_chart(source_counts)
+    # --- Input form ---
+    col_left, col_right = st.columns(2)
 
-    # --- Methodology ---
-    st.subheader("Metodología")
+    with col_left:
+        brands = sorted(merged_df["brand"].dropna().unique().tolist())
+        calc_brand = st.selectbox("Marca", brands, key="calc_brand")
+
+        brand_models = sorted(
+            merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
+        )
+        calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
+
+        model_versions = sorted(
+            merged_df[
+                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
+            ]["version"].dropna().unique().tolist()
+        )
+        if model_versions:
+            calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
+        else:
+            calc_version = "Cualquiera"
+
+    with col_right:
+        model_years = sorted(
+            merged_df[
+                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
+            ]["year"].dropna().unique().tolist()
+        )
+        if model_years:
+            calc_year = st.selectbox("Año", model_years, key="calc_year")
+        else:
+            calc_year = st.number_input("Año", min_value=2016, max_value=2026, value=2022, key="calc_year")
+
+        calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
+
+        commission_options = {
+            "3% del precio de venta": 0.03,
+            "5% del precio de venta": 0.05,
+            "7% del precio de venta": 0.07,
+            "10% del precio de venta": 0.10,
+            "USD 300 fijo": 300,
+            "USD 500 fijo": 500,
+            "USD 750 fijo": 750,
+            "USD 1.000 fijo": 1000,
+        }
+        commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
+        commission_value = commission_options[commission_label]
+        is_percentage = "%" in commission_label
+
+    # --- Calculate ---
+    if st.button("Calcular precio", type="primary"):
+        # Find comparables
+        comps = merged_df[
+            (merged_df["brand"] == calc_brand) &
+            (merged_df["model"] == calc_model) &
+            (merged_df["year"] == calc_year) &
+            (merged_df["price_usd"].notna())
+        ].copy()
+
+        if calc_version != "Cualquiera":
+            version_comps = comps[comps["version"] == calc_version]
+            if len(version_comps) >= 3:
+                comps = version_comps
+
+        # Filter by km range ±20k
+        km_comps = comps[(comps["km"].notna()) & (abs(comps["km"] - calc_km) <= 20000)]
+        if len(km_comps) >= 3:
+            comps = km_comps
+
+        if len(comps) < 2:
+            st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model} {calc_year}. Se encontraron {len(comps)} publicaciones.")
+            return
+
+        prices = sorted(comps["price_usd"].tolist())
+
+        # Remove top 20%
+        import math
+        cut = max(1, math.ceil(len(prices) * 0.20))
+        filtered_prices = prices[:-cut] if len(prices) > 2 else prices
+
+        p25 = float(np.percentile(filtered_prices, 25))
+        p50 = float(np.median(filtered_prices))
+        p75 = float(np.percentile(filtered_prices, 75))
+
+        scenarios = {
+            "Agresivo": {"price": round(p25), "desc": "Venta rápida (percentil 25)", "color": "#cc3333"},
+            "Moderado": {"price": round(p50), "desc": "Precio equilibrado (mediana)", "color": "#cc8800"},
+            "Conservador": {"price": round(p75), "desc": "Maximizar precio (percentil 75)", "color": "#1a8a4a"},
+        }
+
+        st.divider()
+        st.subheader("Resultado")
+        st.write(f"**{calc_brand} {calc_model} {calc_year}** — {calc_km:,} km")
+        st.write(f"Basado en **{len(comps)}** publicaciones comparables (se descartó el 20% más caro)")
+
+        # Cards for each scenario
+        cols = st.columns(3)
+        for i, (name, data) in enumerate(scenarios.items()):
+            price = data["price"]
+            if is_percentage:
+                commission = round(price * commission_value)
+            else:
+                commission = commission_value
+            seller_gets = price - commission
+
+            with cols[i]:
+                st.html(f"""
+                <div style="background: #f9f9f9; border-radius: 10px; padding: 20px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
+                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">{name}</div>
+                    <div style="font-size: 11px; color: #999; margin-bottom: 12px;">{data['desc']}</div>
+                    <div style="font-size: 28px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
+                    <div style="margin-top: 12px; font-size: 13px; color: #555;">
+                        <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
+                            <span>Precio de venta</span><span><b>USD {price:,}</b></span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
+                            <span>Tu comisión</span><span style="color:{data['color']}"><b>USD {commission:,}</b></span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; padding: 4px 0;">
+                            <span>El vendedor recibe</span><span><b>USD {seller_gets:,}</b></span>
+                        </div>
+                    </div>
+                </div>
+                """)
+
+        # Show comparables table
+        st.divider()
+        st.write("**Publicaciones comparables encontradas:**")
+        comp_display = comps[["brand", "model", "version", "year", "km", "price_usd", "location", "source", "url"]].copy()
+        comp_display = comp_display.sort_values("price_usd").reset_index(drop=True)
+        comp_display.columns = ["Marca", "Modelo", "Versión", "Año", "Km", "Precio USD", "Ubicación", "Fuente", "Link"]
+        st.dataframe(
+            comp_display,
+            column_config={
+                "Link": st.column_config.LinkColumn("Link"),
+                "Precio USD": st.column_config.NumberColumn(format="%.0f"),
+                "Km": st.column_config.NumberColumn(format="%.0f"),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+def _render_market_analysis(listings_df, references_df):
+    tab1, tab2 = st.tabs(["Precios por Modelo", "Publicaciones por Fuente"])
+
+    with tab1:
+        ref_display = references_df.sort_values("median_price_usd", ascending=False)
+        ref_display = ref_display[["brand", "model", "year", "median_price_usd", "sample_count", "min_price_usd", "max_price_usd"]]
+        ref_display.columns = ["Marca", "Modelo", "Año", "Mediana USD", "Muestras", "Mín USD", "Máx USD"]
+        st.dataframe(
+            ref_display,
+            column_config={
+                "Mediana USD": st.column_config.NumberColumn(format="%.0f"),
+                "Mín USD": st.column_config.NumberColumn(format="%.0f"),
+                "Máx USD": st.column_config.NumberColumn(format="%.0f"),
+            },
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with tab2:
+        source_counts = listings_df["source"].value_counts()
+        st.bar_chart(source_counts)
+
+
+def _render_methodology():
     st.html("""
     <div style="font-family: Arial, sans-serif; color: #333; line-height: 1.8; max-width: 800px; font-size: 14px;">
 
