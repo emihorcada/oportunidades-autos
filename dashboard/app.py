@@ -662,24 +662,6 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         "net_profit_usd", ascending=False
     )
 
-    # --- Metrics ---
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Publicaciones", f"{len(listings_df):,}")
-    col2.metric("Oportunidades", f"{len(opportunities):,}")
-
-    if not opportunities.empty:
-        best = opportunities.iloc[0]
-        col3.metric(
-            "Mejor Oportunidad",
-            f"USD {best['net_profit_usd']:,.0f}",
-            f"{best['brand']} {best['model']} {best['year']}"
-        )
-    else:
-        col3.metric("Mejor Oportunidad", "—")
-
-    last_scrape = listings_df["scraped_at"].max() if "scraped_at" in listings_df.columns else "—"
-    col4.metric("Último Scraping", str(last_scrape)[:16] if last_scrape != "—" else "—")
-
     # --- Opportunities Table ---
     st.subheader(f"Oportunidades ({len(opportunities)})")
 
