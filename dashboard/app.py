@@ -704,15 +704,8 @@ def _render_price_calculator(merged_df):
             calc_version = "Cualquiera"
 
     with c4:
-        model_years = sorted(
-            merged_df[
-                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
-            ]["year"].dropna().unique().tolist()
-        )
-        if model_years:
-            calc_year = st.selectbox("Año", model_years, key="calc_year")
-        else:
-            calc_year = st.number_input("Año", min_value=2016, max_value=2026, value=2022, key="calc_year")
+        all_years = list(range(2026, 2005, -1))
+        calc_year = st.selectbox("Año", all_years, key="calc_year")
 
     with c5:
         calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
