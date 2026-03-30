@@ -443,14 +443,11 @@ def _run_scraper():
 
 
 def main():
-    st.set_page_config(page_title="Detector de Oportunidades", layout="wide")
 
     # Force light theme via custom CSS
     st.html("""
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
-    [data-testid="stSidebar"] { font-family: Arial, Helvetica, sans-serif !important; }
-    /* Black accent for sliders/inputs instead of red */
     [data-testid="stSlider"] > div > div > div > div {
         background-color: #333 !important;
     }
@@ -460,21 +457,21 @@ def main():
     </style>
     """)
 
-    st.title("Detector de Oportunidades de Autos")
+    # --- Header ---
+    header_left, header_right = st.columns([4, 1])
+    with header_left:
+        st.title("Detector de Oportunidades de Autos")
+    with header_right:
+        st.write("")  # spacer
+        if st.button("Actualizar datos", type="primary", use_container_width=True):
+            _run_scraper()
+            st.cache_data.clear()
+            st.rerun()
 
     listings_df, references_df, merged_df = load_data()
 
     if merged_df.empty:
-        st.warning("No hay datos. Clickeá 'Actualizar datos' en el sidebar.")
-
-    # --- Sidebar: Update button ---
-    st.sidebar.header("Actualizar")
-    if st.sidebar.button("Actualizar datos", type="primary", use_container_width=True):
-        _run_scraper()
-        st.cache_data.clear()
-        st.rerun()
-
-    st.sidebar.divider()
+        st.warning("No hay datos. Clickeá 'Actualizar datos'.")
 
     # --- Main tabs ---
     main_tabs = st.tabs(["Oportunidades", "Calculadora de Precio", "Análisis de Mercado", "Metodología"])
@@ -512,39 +509,44 @@ def main():
 
 
 def _render_opportunities_tab(listings_df, references_df, merged_df):
-    # --- Sidebar Filters ---
-    st.sidebar.header("Filtros")
+    # --- Filters inside expander ---
+    with st.expander("Filtros", expanded=False):
+        fc1, fc2, fc3, fc4 = st.columns(4)
 
-    categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
-    selected_cat = st.sidebar.selectbox("Categoría", categories)
+        with fc1:
+            categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
+            selected_cat = st.selectbox("Categoría", categories, key="opp_cat")
 
-    brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
-    selected_brand = st.sidebar.selectbox("Marca", brands)
+            brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
+            selected_brand = st.selectbox("Marca", brands, key="opp_brand")
 
-    if selected_brand != "Todas":
-        models = ["Todos"] + sorted(
-            merged_df[merged_df["brand"] == selected_brand]["model"].dropna().unique().tolist()
-        )
-    else:
-        models = ["Todos"] + sorted(merged_df["model"].dropna().unique().tolist())
-    selected_model = st.sidebar.selectbox("Modelo", models)
+        with fc2:
+            if selected_brand != "Todas":
+                models = ["Todos"] + sorted(
+                    merged_df[merged_df["brand"] == selected_brand]["model"].dropna().unique().tolist()
+                )
+            else:
+                models = ["Todos"] + sorted(merged_df["model"].dropna().unique().tolist())
+            selected_model = st.selectbox("Modelo", models, key="opp_model")
 
-    year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
-    year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
-    year_range = st.sidebar.slider("Año", year_min, year_max, (year_min, year_max))
+            sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
+            selected_source = st.selectbox("Fuente", sources, key="opp_source")
 
-    km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
-    km_range = st.sidebar.slider("Kilómetros", 0, km_max_val, (0, km_max_val))
+        with fc3:
+            year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
+            year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
+            year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
 
-    price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
-    price_range = st.sidebar.slider("Precio USD", 0, price_max_val, (0, price_max_val))
+            km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
+            km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
 
-    min_profit = st.sidebar.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250)
+        with fc4:
+            price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
+            price_range = st.slider("Precio USD", 0, price_max_val, (0, price_max_val), key="opp_price")
 
-    sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
-    selected_source = st.sidebar.selectbox("Fuente", sources)
+            min_profit = st.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250, key="opp_profit")
 
-    location_filter = st.sidebar.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"])
+        location_filter = st.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"], horizontal=True, key="opp_loc")
 
     # --- Apply Filters ---
     df = merged_df.copy()
