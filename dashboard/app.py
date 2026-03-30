@@ -611,17 +611,19 @@ def _render_price_calculator(merged_df):
     st.write("Ingresá los datos del auto que tu cliente quiere vender para calcular el precio sugerido.")
 
     # --- Input form ---
-    col_left, col_right = st.columns(2)
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-    with col_left:
+    with c1:
         brands = sorted(merged_df["brand"].dropna().unique().tolist())
         calc_brand = st.selectbox("Marca", brands, key="calc_brand")
 
+    with c2:
         brand_models = sorted(
             merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
         )
         calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
 
+    with c3:
         model_versions = sorted(
             merged_df[
                 (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
@@ -632,7 +634,7 @@ def _render_price_calculator(merged_df):
         else:
             calc_version = "Cualquiera"
 
-    with col_right:
+    with c4:
         model_years = sorted(
             merged_df[
                 (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
@@ -643,18 +645,21 @@ def _render_price_calculator(merged_df):
         else:
             calc_year = st.number_input("Año", min_value=2016, max_value=2026, value=2022, key="calc_year")
 
+    with c5:
         calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
 
-        commission_options = {
-            "3% del precio de venta": 0.03,
-            "5% del precio de venta": 0.05,
-            "7% del precio de venta": 0.07,
-            "10% del precio de venta": 0.10,
-            "USD 300 fijo": 300,
-            "USD 500 fijo": 500,
-            "USD 750 fijo": 750,
-            "USD 1.000 fijo": 1000,
-        }
+    commission_options = {
+        "3% del precio de venta": 0.03,
+        "5% del precio de venta": 0.05,
+        "7% del precio de venta": 0.07,
+        "10% del precio de venta": 0.10,
+        "USD 300 fijo": 300,
+        "USD 500 fijo": 500,
+        "USD 750 fijo": 750,
+        "USD 1.000 fijo": 1000,
+    }
+    cc1, cc2 = st.columns([2, 5])
+    with cc1:
         commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
         commission_value = commission_options[commission_label]
         is_percentage = "%" in commission_label
