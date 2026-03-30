@@ -11,9 +11,22 @@ import requests
 
 
 def get_database():
-    """Factory: return the right database backend."""
+    """Factory: return the right database backend.
+
+    Checks both os.environ (for CLI usage) and st.secrets (for Streamlit Cloud).
+    """
     supabase_url = os.environ.get("SUPABASE_URL")
     supabase_key = os.environ.get("SUPABASE_KEY")
+
+    # Streamlit Cloud stores secrets in st.secrets, not os.environ
+    if not supabase_url:
+        try:
+            import streamlit as st
+            supabase_url = st.secrets.get("SUPABASE_URL")
+            supabase_key = st.secrets.get("SUPABASE_KEY")
+        except Exception:
+            pass
+
     if supabase_url and supabase_key:
         return SupabaseDatabase(supabase_url, supabase_key)
     return SQLiteDatabase()
