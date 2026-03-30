@@ -23,7 +23,7 @@ def _is_local(location):
 
 
 @st.cache_data(ttl=60)
-def load_data():
+def load_data(_version=2):
     db = get_database()
     db.init()
     listings = pd.DataFrame(db.get_all_listings())
