@@ -728,26 +728,49 @@ def _render_price_calculator(merged_df):
 
     # --- Calculate ---
     if st.button("Calcular precio", type="primary"):
-        # Find comparables
-        comps = merged_df[
+        # Progressive filtering: start broad, narrow down if enough data
+        # Step 1: All listings of this brand + model (any year)
+        all_model = merged_df[
             (merged_df["brand"] == calc_brand) &
             (merged_df["model"] == calc_model) &
-            (merged_df["year"] == calc_year) &
             (merged_df["price_usd"].notna())
         ].copy()
 
+        if len(all_model) == 0:
+            st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base de datos.")
+            return
+
+        # Step 2: Try exact year
+        comps = all_model[all_model["year"] == calc_year]
+
+        # Step 3: If not enough, expand to ±1 year
+        if len(comps) < 3:
+            comps = all_model[abs(all_model["year"] - calc_year) <= 1]
+
+        # Step 4: If still not enough, expand to ±2 years
+        if len(comps) < 3:
+            comps = all_model[abs(all_model["year"] - calc_year) <= 2]
+
+        # Step 5: If still not enough, use all years
+        if len(comps) < 3:
+            comps = all_model
+
+        # Step 6: Try narrowing by version if enough data
         if calc_version != "Cualquiera":
             version_comps = comps[comps["version"] == calc_version]
             if len(version_comps) >= 3:
                 comps = version_comps
 
-        # Filter by km range ±20k
+        # Step 7: Try narrowing by km range ±20k if enough data
         km_comps = comps[(comps["km"].notna()) & (abs(comps["km"] - calc_km) <= 20000)]
         if len(km_comps) >= 3:
             comps = km_comps
 
+        # Show what filter level was used
+        year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
+
         if len(comps) < 2:
-            st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model} {calc_year}. Se encontraron {len(comps)} publicaciones.")
+            st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model}. Se encontró solo {len(comps)} publicación.")
             return
 
         prices = sorted(comps["price_usd"].tolist())
@@ -770,7 +793,7 @@ def _render_price_calculator(merged_df):
         st.divider()
         st.subheader("Resultado")
         st.write(f"**{calc_brand} {calc_model} {calc_year}** — {calc_km:,} km")
-        st.write(f"Basado en **{len(comps)}** publicaciones comparables (se descartó el 20% más caro)")
+        st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, se descartó el 20% más caro)")
 
         # Cards for each scenario
         cols = st.columns(3)
@@ -802,22 +825,42 @@ def _render_price_calculator(merged_df):
                 </div>
                 """)
 
-        # Show comparables table
+        # Show comparables table as HTML with clickable links
         st.divider()
-        st.write("**Publicaciones comparables encontradas:**")
-        comp_display = comps[["brand", "model", "version", "year", "km", "price_usd", "location", "source", "url"]].copy()
-        comp_display = comp_display.sort_values("price_usd").reset_index(drop=True)
-        comp_display.columns = ["Marca", "Modelo", "Versión", "Año", "Km", "Precio USD", "Ubicación", "Fuente", "Link"]
-        st.dataframe(
-            comp_display,
-            column_config={
-                "Link": st.column_config.LinkColumn("Link"),
-                "Precio USD": st.column_config.NumberColumn(format="%.0f"),
-                "Km": st.column_config.NumberColumn(format="%.0f"),
-            },
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.write(f"**Publicaciones comparables encontradas ({len(comps)}):**")
+        comp_sorted = comps.sort_values("price_usd").reset_index(drop=True)
+        comp_rows = []
+        for _, c in comp_sorted.iterrows():
+            c_url = c.get("url", "") or ""
+            c_km = f"{int(c['km']):,}" if pd.notna(c.get("km")) else "s/d"
+            c_price = f"{c['price_usd']:,.0f}" if pd.notna(c.get("price_usd")) else "s/d"
+            c_year = int(c["year"]) if pd.notna(c.get("year")) else ""
+            link_html = f'<a href="{c_url}" target="_blank" style="color:#1a6dcc">Ver</a>' if c_url else ""
+            comp_rows.append(f"""<tr>
+                <td>{c.get('brand','')}</td>
+                <td>{c.get('model','')} {c.get('version','')}</td>
+                <td>{c_year}</td>
+                <td>{c_km}</td>
+                <td>USD {c_price}</td>
+                <td>{c.get('location','')}</td>
+                <td>{c.get('source','')}</td>
+                <td>{link_html}</td>
+            </tr>""")
+        comp_html = f"""
+        <table style="width:100%;border-collapse:collapse;font-family:Arial;font-size:13px">
+            <thead><tr style="background:#f5f5f5;border-bottom:2px solid #ddd;font-size:12px;color:#333">
+                <th style="padding:8px;text-align:left">Marca</th>
+                <th style="padding:8px;text-align:left">Modelo</th>
+                <th style="padding:8px;text-align:left">Año</th>
+                <th style="padding:8px;text-align:left">Km</th>
+                <th style="padding:8px;text-align:left">Precio</th>
+                <th style="padding:8px;text-align:left">Ubicación</th>
+                <th style="padding:8px;text-align:left">Fuente</th>
+                <th style="padding:8px;text-align:left">Link</th>
+            </tr></thead>
+            <tbody>{"".join(comp_rows)}</tbody>
+        </table>"""
+        st.html(comp_html)
 
 
 def _render_market_analysis(listings_df, references_df):
