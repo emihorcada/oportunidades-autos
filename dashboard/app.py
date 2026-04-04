@@ -709,7 +709,11 @@ def _render_price_calculator(merged_df):
             calc_year = st.selectbox("Año", all_years, key="calc_year")
 
         with c5:
-            calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
+            km_col1, km_col2 = st.columns(2)
+            with km_col1:
+                calc_km_min = st.number_input("Km desde", min_value=0, max_value=500000, value=20000, step=5000, key="calc_km_min")
+            with km_col2:
+                calc_km_max = st.number_input("Km hasta", min_value=0, max_value=500000, value=60000, step=5000, key="calc_km_max")
 
         commission_options = {
             "3% del precio de venta": 0.03,
@@ -760,12 +764,14 @@ def _render_price_calculator(merged_df):
         if len(version_comps) >= 3:
             comps = version_comps
 
-    # Step 4: Filter by km progressively (tighter first)
-    for km_range in [10000, 20000, 40000, 80000]:
-        km_comps = comps[(comps["km"].notna()) & (abs(comps["km"] - calc_km) <= km_range)]
-        if len(km_comps) >= 3:
-            comps = km_comps
-            break
+    # Step 4: Filter by km range (user-defined)
+    km_comps = comps[
+        (comps["km"].notna()) &
+        (comps["km"] >= calc_km_min) &
+        (comps["km"] <= calc_km_max)
+    ]
+    if len(km_comps) >= 2:
+        comps = km_comps
 
     # Build filter description
     year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
@@ -795,7 +801,7 @@ def _render_price_calculator(merged_df):
 
         st.divider()
         st.subheader("Resultado")
-        st.write(f"**{calc_brand} {calc_model} {calc_year}** — {calc_km:,} km")
+        st.write(f"**{calc_brand} {calc_model} {calc_year}** — entre {calc_km_min:,} y {calc_km_max:,} km")
         st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used}, se descartó el 20% más caro)")
 
         # Cards for each scenario
