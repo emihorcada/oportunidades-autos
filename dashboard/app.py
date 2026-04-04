@@ -679,60 +679,76 @@ def _render_price_calculator(merged_df):
     st.subheader("Calculadora de Precio de Venta")
     st.write("Ingresá los datos del auto que tu cliente quiere vender para calcular el precio sugerido.")
 
-    # --- Input form (st.form so button always recalculates) ---
-    with st.form("calc_form"):
-        c1, c2, c3, c4, c5 = st.columns(5)
+    # --- Inputs (outside form so dropdowns update dynamically) ---
+    c1, c2, c3, c4, c5 = st.columns(5)
 
-        with c1:
-            brands = sorted(merged_df["brand"].dropna().unique().tolist())
-            calc_brand = st.selectbox("Marca", brands, key="calc_brand")
+    with c1:
+        brands = sorted(merged_df["brand"].dropna().unique().tolist())
+        calc_brand = st.selectbox("Marca", brands, key="calc_brand")
 
-        with c2:
-            brand_models = sorted(
-                merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
-            )
-            calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
+    with c2:
+        brand_models = sorted(
+            merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
+        )
+        calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
 
-        with c3:
-            model_versions = sorted(
-                merged_df[
-                    (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
-                ]["version"].dropna().unique().tolist()
-            )
-            if model_versions:
-                calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
-            else:
-                calc_version = "Cualquiera"
+    with c3:
+        model_versions = sorted(
+            merged_df[
+                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
+            ]["version"].dropna().unique().tolist()
+        )
+        if model_versions:
+            calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
+        else:
+            calc_version = "Cualquiera"
 
-        with c4:
-            all_years = list(range(2026, 2005, -1))
-            calc_year = st.selectbox("Año", all_years, key="calc_year")
+    with c4:
+        all_years = list(range(2026, 2005, -1))
+        calc_year = st.selectbox("Año", all_years, key="calc_year")
 
-        with c5:
-            km_col1, km_col2 = st.columns(2)
-            with km_col1:
-                calc_km_min = st.number_input("Km desde", min_value=0, max_value=500000, value=20000, step=5000, key="calc_km_min")
-            with km_col2:
-                calc_km_max = st.number_input("Km hasta", min_value=0, max_value=500000, value=60000, step=5000, key="calc_km_max")
+    with c5:
+        km_col1, km_col2 = st.columns(2)
+        with km_col1:
+            calc_km_min = st.number_input("Km desde", min_value=0, max_value=500000, value=20000, step=5000, key="calc_km_min")
+        with km_col2:
+            calc_km_max = st.number_input("Km hasta", min_value=0, max_value=500000, value=60000, step=5000, key="calc_km_max")
 
-        commission_options = {
-            "3% del precio de venta": 0.03,
-            "5% del precio de venta": 0.05,
-            "7% del precio de venta": 0.07,
-            "10% del precio de venta": 0.10,
-            "USD 300 fijo": 300,
-            "USD 500 fijo": 500,
-            "USD 750 fijo": 750,
-            "USD 1.000 fijo": 1000,
+    commission_options = {
+        "3% del precio de venta": 0.03,
+        "5% del precio de venta": 0.05,
+        "7% del precio de venta": 0.07,
+        "10% del precio de venta": 0.10,
+        "USD 300 fijo": 300,
+        "USD 500 fijo": 500,
+        "USD 750 fijo": 750,
+        "USD 1.000 fijo": 1000,
+    }
+    cc1, cc2 = st.columns([2, 5])
+    with cc1:
+        commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
+
+    # Store in session state so results persist
+    if st.button("Calcular precio", type="primary"):
+        st.session_state["calc_submitted"] = True
+        st.session_state["calc_params"] = {
+            "brand": calc_brand, "model": calc_model, "version": calc_version,
+            "year": calc_year, "km_min": calc_km_min, "km_max": calc_km_max,
+            "commission_label": commission_label,
         }
-        cc1, cc2 = st.columns([2, 5])
-        with cc1:
-            commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
 
-        submitted = st.form_submit_button("Calcular precio", type="primary")
-
-    if not submitted:
+    if not st.session_state.get("calc_submitted"):
         return
+
+    # Use stored params
+    p = st.session_state["calc_params"]
+    calc_brand = p["brand"]
+    calc_model = p["model"]
+    calc_version = p["version"]
+    calc_year = p["year"]
+    calc_km_min = p["km_min"]
+    calc_km_max = p["km_max"]
+    commission_label = p["commission_label"]
 
     commission_value = commission_options[commission_label]
     is_percentage = "%" in commission_label
