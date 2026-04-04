@@ -679,99 +679,102 @@ def _render_price_calculator(merged_df):
     st.subheader("Calculadora de Precio de Venta")
     st.write("Ingresá los datos del auto que tu cliente quiere vender para calcular el precio sugerido.")
 
-    # --- Input form ---
-    c1, c2, c3, c4, c5 = st.columns(5)
+    # --- Input form (st.form so button always recalculates) ---
+    with st.form("calc_form"):
+        c1, c2, c3, c4, c5 = st.columns(5)
 
-    with c1:
-        brands = sorted(merged_df["brand"].dropna().unique().tolist())
-        calc_brand = st.selectbox("Marca", brands, key="calc_brand")
+        with c1:
+            brands = sorted(merged_df["brand"].dropna().unique().tolist())
+            calc_brand = st.selectbox("Marca", brands, key="calc_brand")
 
-    with c2:
-        brand_models = sorted(
-            merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
-        )
-        calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
+        with c2:
+            brand_models = sorted(
+                merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
+            )
+            calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
 
-    with c3:
-        model_versions = sorted(
-            merged_df[
-                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
-            ]["version"].dropna().unique().tolist()
-        )
-        if model_versions:
-            calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
-        else:
-            calc_version = "Cualquiera"
+        with c3:
+            model_versions = sorted(
+                merged_df[
+                    (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
+                ]["version"].dropna().unique().tolist()
+            )
+            if model_versions:
+                calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
+            else:
+                calc_version = "Cualquiera"
 
-    with c4:
-        all_years = list(range(2026, 2005, -1))
-        calc_year = st.selectbox("Año", all_years, key="calc_year")
+        with c4:
+            all_years = list(range(2026, 2005, -1))
+            calc_year = st.selectbox("Año", all_years, key="calc_year")
 
-    with c5:
-        calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
+        with c5:
+            calc_km = st.number_input("Kilómetros", min_value=0, max_value=500000, value=50000, step=5000, key="calc_km")
 
-    commission_options = {
-        "3% del precio de venta": 0.03,
-        "5% del precio de venta": 0.05,
-        "7% del precio de venta": 0.07,
-        "10% del precio de venta": 0.10,
-        "USD 300 fijo": 300,
-        "USD 500 fijo": 500,
-        "USD 750 fijo": 750,
-        "USD 1.000 fijo": 1000,
-    }
-    cc1, cc2 = st.columns([2, 5])
-    with cc1:
-        commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
-        commission_value = commission_options[commission_label]
-        is_percentage = "%" in commission_label
+        commission_options = {
+            "3% del precio de venta": 0.03,
+            "5% del precio de venta": 0.05,
+            "7% del precio de venta": 0.07,
+            "10% del precio de venta": 0.10,
+            "USD 300 fijo": 300,
+            "USD 500 fijo": 500,
+            "USD 750 fijo": 750,
+            "USD 1.000 fijo": 1000,
+        }
+        cc1, cc2 = st.columns([2, 5])
+        with cc1:
+            commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
 
-    # --- Calculate ---
-    if st.button("Calcular precio", type="primary"):
-        # Progressive filtering: start broad, narrow down if enough data
-        # Step 1: All listings of this brand + model (any year)
-        all_model = merged_df[
-            (merged_df["brand"] == calc_brand) &
-            (merged_df["model"] == calc_model) &
-            (merged_df["price_usd"].notna())
-        ].copy()
+        submitted = st.form_submit_button("Calcular precio", type="primary")
 
-        if len(all_model) == 0:
-            st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base de datos.")
-            return
+    if not submitted:
+        return
 
-        # Step 2: Try exact year
-        comps = all_model[all_model["year"] == calc_year]
+    commission_value = commission_options[commission_label]
+    is_percentage = "%" in commission_label
 
-        # Step 3: If not enough, expand to ±1 year
-        if len(comps) < 3:
-            comps = all_model[abs(all_model["year"] - calc_year) <= 1]
+    # --- Progressive filtering ---
+    # Step 1: All listings of this brand + model
+    all_model = merged_df[
+        (merged_df["brand"] == calc_brand) &
+        (merged_df["model"] == calc_model) &
+        (merged_df["price_usd"].notna())
+    ].copy()
 
-        # Step 4: If still not enough, expand to ±2 years
-        if len(comps) < 3:
-            comps = all_model[abs(all_model["year"] - calc_year) <= 2]
+    if len(all_model) == 0:
+        st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base de datos.")
+        return
 
-        # Step 5: If still not enough, use all years
-        if len(comps) < 3:
-            comps = all_model
+    # Step 2: Filter by year progressively
+    comps = all_model[all_model["year"] == calc_year]
+    if len(comps) < 3:
+        comps = all_model[abs(all_model["year"] - calc_year) <= 1]
+    if len(comps) < 3:
+        comps = all_model[abs(all_model["year"] - calc_year) <= 2]
+    if len(comps) < 3:
+        comps = all_model
 
-        # Step 6: Try narrowing by version if enough data
-        if calc_version != "Cualquiera":
-            version_comps = comps[comps["version"] == calc_version]
-            if len(version_comps) >= 3:
-                comps = version_comps
+    # Step 3: Filter by version if enough data
+    if calc_version != "Cualquiera":
+        version_comps = comps[comps["version"] == calc_version]
+        if len(version_comps) >= 3:
+            comps = version_comps
 
-        # Step 7: Try narrowing by km range ±20k if enough data
-        km_comps = comps[(comps["km"].notna()) & (abs(comps["km"] - calc_km) <= 20000)]
+    # Step 4: Filter by km progressively (tighter first)
+    for km_range in [10000, 20000, 40000, 80000]:
+        km_comps = comps[(comps["km"].notna()) & (abs(comps["km"] - calc_km) <= km_range)]
         if len(km_comps) >= 3:
             comps = km_comps
+            break
 
-        # Show what filter level was used
-        year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
+    # Build filter description
+    year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
+    km_vals = comps["km"].dropna()
+    km_range_used = f"{int(km_vals.min()):,}-{int(km_vals.max()):,} km" if not km_vals.empty else "s/d"
 
-        if len(comps) < 2:
-            st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model}. Se encontró solo {len(comps)} publicación.")
-            return
+    if len(comps) < 2:
+        st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model}. Se encontró solo {len(comps)} publicación.")
+        return
 
         prices = sorted(comps["price_usd"].tolist())
 
@@ -793,7 +796,7 @@ def _render_price_calculator(merged_df):
         st.divider()
         st.subheader("Resultado")
         st.write(f"**{calc_brand} {calc_model} {calc_year}** — {calc_km:,} km")
-        st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, se descartó el 20% más caro)")
+        st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used}, se descartó el 20% más caro)")
 
         # Cards for each scenario
         cols = st.columns(3)
