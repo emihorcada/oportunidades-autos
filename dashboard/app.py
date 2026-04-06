@@ -417,7 +417,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
         </tr>""")
 
     rows_html = "".join(rows)
-    return f"""
+    html = f"""
     <div style="max-height: 720px; overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
     <table class="opp-table">
         <thead>
@@ -444,6 +444,8 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
         </tbody>
     </table>
     </div>
+    """
+    html += """
     <script>
     (function() {
         var table = document.querySelector('.opp-table');
@@ -479,6 +481,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
     })();
     </script>
     """
+    return html
 
 
 def _run_scraper():
