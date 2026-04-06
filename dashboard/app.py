@@ -106,6 +106,16 @@ def _build_css():
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.3px;
+        cursor: pointer;
+        user-select: none;
+    }
+    .opp-table th:hover {
+        background: #e8e8e8;
+    }
+    .opp-table th .sort-arrow {
+        margin-left: 4px;
+        font-size: 10px;
+        color: #999;
     }
     .opp-table td {
         padding: 7px 10px;
@@ -378,23 +388,32 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
         # Source with link
         source_html = f'<a href="{url}" target="_blank" style="color:#1a6dcc;text-decoration:none">{source}</a>'
 
+        # Raw values for sorting
+        raw_price = row.get("price_usd", 0) or 0
+        raw_median = row.get("median_price_usd", 0) or 0
+        raw_suggested = row.get("suggested_price_usd", 0) or 0
+        raw_profit = net_profit or 0
+        raw_travel = travel_cost or 0
+        raw_km = row.get("km", 0) or 0
+        raw_aging = int(aging_raw) if aging_raw is not None and not pd.isna(aging_raw) else 9999
+
         rows.append(f"""
         <tr>
-            <td>{photo_html}</td>
-            <td><b>{brand}</b></td>
-            <td>{model} {version}</td>
-            <td>{year}</td>
-            <td>{km}</td>
-            <td>USD {price_usd}</td>
-            <td>{price_change_html}</td>
-            <td>{median_html}</td>
-            <td>{suggested_html}</td>
-            <td>{profit_html}</td>
-            <td>{location}</td>
-            <td>{travel_html}</td>
-            <td>{aging_html}</td>
-            <td>{category}</td>
-            <td>{source_html}</td>
+            <td data-sort="0">{photo_html}</td>
+            <td data-sort="{brand}">{brand}</td>
+            <td data-sort="{model} {version}">{model} {version}</td>
+            <td data-sort="{year}">{year}</td>
+            <td data-sort="{raw_km}">{km}</td>
+            <td data-sort="{raw_price}">USD {price_usd}</td>
+            <td data-sort="0">{price_change_html}</td>
+            <td data-sort="{raw_median}">{median_html}</td>
+            <td data-sort="{raw_suggested}">{suggested_html}</td>
+            <td data-sort="{raw_profit}">{profit_html}</td>
+            <td data-sort="{location}">{location}</td>
+            <td data-sort="{raw_travel}">{travel_html}</td>
+            <td data-sort="{raw_aging}">{aging_html}</td>
+            <td data-sort="{category}">{category}</td>
+            <td data-sort="{source}">{source_html}</td>
         </tr>""")
 
     rows_html = "".join(rows)
@@ -425,6 +444,40 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
         </tbody>
     </table>
     </div>
+    <script>
+    (function() {
+        var table = document.querySelector('.opp-table');
+        if (!table) return;
+        var headers = table.querySelectorAll('th');
+        var sortState = {};
+        headers.forEach(function(th, colIdx) {
+            th.innerHTML = th.textContent + ' <span class="sort-arrow"></span>';
+            th.addEventListener('click', function() {
+                var tbody = table.querySelector('tbody');
+                var rows = Array.from(tbody.querySelectorAll('tr'));
+                var asc = sortState[colIdx] !== 'asc';
+                sortState = {};
+                sortState[colIdx] = asc ? 'asc' : 'desc';
+                // Update arrows
+                headers.forEach(function(h) {
+                    h.querySelector('.sort-arrow').textContent = '';
+                });
+                th.querySelector('.sort-arrow').textContent = asc ? ' ▲' : ' ▼';
+                rows.sort(function(a, b) {
+                    var aVal = a.cells[colIdx].getAttribute('data-sort') || a.cells[colIdx].textContent;
+                    var bVal = b.cells[colIdx].getAttribute('data-sort') || b.cells[colIdx].textContent;
+                    var aNum = parseFloat(aVal);
+                    var bNum = parseFloat(bVal);
+                    if (!isNaN(aNum) && !isNaN(bNum)) {
+                        return asc ? aNum - bNum : bNum - aNum;
+                    }
+                    return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+                });
+                rows.forEach(function(row) { tbody.appendChild(row); });
+            });
+        });
+    })();
+    </script>
     """
 
 
