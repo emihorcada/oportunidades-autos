@@ -3,6 +3,7 @@ import os
 import re
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -595,55 +596,60 @@ def main():
     h1 { font-size: 1.4rem !important; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     button[data-baseweb="tab"]:hover { background-color: #f0f0f0 !important; border-radius: 4px; }
-    [data-testid="stSlider"] > div > div > div > div {
-        background-color: #333 !important;
-    }
-    div[data-baseweb="select"] > div {
-        border-color: #333 !important;
-    }
+    [data-testid="stSlider"] > div > div > div > div { background-color: #333 !important; }
+    div[data-baseweb="select"] > div { border-color: #333 !important; }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
-    .sticky-filters [data-testid="stMultiSelect"] label,
-    .sticky-filters [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
-    .sticky-filters [data-testid="stMultiSelect"] input { font-size: 11px !important; }
-    .sticky-filters [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 34px !important; }
-    .sticky-filters {
+    .filters-box {
         position: sticky;
         top: 0;
         z-index: 100;
         background: #ffffff;
-        padding: 10px 14px;
         border: 1px solid #ddd;
         border-radius: 10px;
+        padding: 10px 14px;
         margin-bottom: 12px;
     }
-    .sticky-filters label { font-size: 11px !important; }
-    .sticky-filters [data-baseweb="select"] span,
-    .sticky-filters [data-baseweb="select"] div[role="option"],
-    .sticky-filters input { font-size: 12px !important; }
-    .sticky-filters [data-testid="stSlider"] [data-testid="stMarkdownContainer"] p { font-size: 11px !important; }
+    .filters-box label { font-size: 11px !important; }
+    .filters-box input, .filters-box [data-baseweb="select"] span { font-size: 12px !important; }
+    .filters-box [data-testid="stMultiSelect"] label,
+    .filters-box [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+    .filters-box [data-testid="stMultiSelect"] input { font-size: 11px !important; }
+    .filters-box [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 34px !important; }
     </style>
+    """, unsafe_allow_html=True)
+    components.html("""
     <script>
     (function() {
-        function makeStickyFilters() {
-            var rows = document.querySelectorAll('[data-testid="stHorizontalBlock"]');
+        var doc = window.parent.document;
+        function run() {
+            applyFiltersBox();
+            applyLoadingState();
+            applyLocationCount();
+        }
+        function applyFiltersBox() {
+            var marker = doc.querySelector('.filters-start-marker');
+            if (!marker) return;
+            var block = marker.closest('[data-testid="stVerticalBlock"]');
+            if (!block) return;
+            var rows = block.querySelectorAll('[data-testid="stHorizontalBlock"]');
             for (var i = 0; i < rows.length; i++) {
-                var row = rows[i];
-                var cols = row.querySelectorAll('[data-testid="column"]');
-                if (cols.length === 9 && !row.classList.contains('sticky-filters')) {
-                    row.classList.add('sticky-filters');
+                var cols = rows[i].querySelectorAll('[data-testid="column"]');
+                if (cols.length === 9 && !rows[i].classList.contains('filters-box')) {
+                    rows[i].classList.add('filters-box');
                 }
             }
         }
-        // Loading overlay on table
-        function applyLoadingState(isRunning) {
-            var tableWrap = document.querySelector('.opp-table-wrap');
+        function applyLoadingState() {
+            var status = doc.querySelector('[data-testid="stStatusWidget"]');
+            var isRunning = status && status.querySelector('[title="Running"]') !== null;
+            var tableWrap = doc.querySelector('.opp-table-wrap');
             if (!tableWrap) return;
             var overlay = tableWrap.querySelector('.opp-loading-overlay');
             if (isRunning) {
                 tableWrap.style.position = 'relative';
                 if (!overlay) {
-                    overlay = document.createElement('div');
+                    overlay = doc.createElement('div');
                     overlay.className = 'opp-loading-overlay';
                     overlay.style.cssText = 'position:absolute;inset:0;background:rgba(255,255,255,0.65);display:flex;align-items:center;justify-content:center;z-index:50;border-radius:6px;font-size:15px;color:#555;font-weight:600;gap:8px;';
                     overlay.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Cargando autos...';
@@ -654,20 +660,8 @@ def main():
                 if (overlay) overlay.style.display = 'none';
             }
         }
-
-        // Watch Streamlit running state via status widget
-        function checkRunning() {
-            var status = document.querySelector('[data-testid="stStatusWidget"]');
-            var isRunning = status && status.querySelector('[title="Running"]') !== null;
-            applyLoadingState(isRunning);
-        }
-
-        var observer = new MutationObserver(function() { makeStickyFilters(); applyLocationCount(); checkRunning(); });
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
-        makeStickyFilters();
-
         function applyLocationCount() {
-            var multiselects = document.querySelectorAll('[data-testid="stMultiSelect"]');
+            var multiselects = doc.querySelectorAll('[data-testid="stMultiSelect"]');
             for (var i = 0; i < multiselects.length; i++) {
                 var ms = multiselects[i];
                 var label = ms.querySelector('label');
@@ -681,7 +675,7 @@ def main():
                 }
                 for (var t = 0; t < tags.length; t++) tags[t].style.display = 'none';
                 if (!countLabel) {
-                    countLabel = document.createElement('div');
+                    countLabel = doc.createElement('div');
                     countLabel.className = 'loc-count-label';
                     countLabel.style.cssText = 'padding: 2px 8px; font-size: 14px; color: #333; font-weight: 500; pointer-events: none; white-space: nowrap;';
                     var inputContainer = ms.querySelector('[data-baseweb="select"] > div');
@@ -690,10 +684,11 @@ def main():
                 countLabel.textContent = tags.length + ' localidades';
             }
         }
-        applyLocationCount();
+        new MutationObserver(run).observe(doc.body, { childList: true, subtree: true, attributes: true });
+        run();
     })();
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0)
 
     st.title("Detector de Oportunidades de Autos")
 
@@ -746,6 +741,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         return
 
     # --- Filters (single row) ---
+    st.markdown('<div class="filters-start-marker"></div>', unsafe_allow_html=True)
     fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2])
 
     with fc1:
