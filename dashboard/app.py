@@ -908,10 +908,16 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         css = _build_css()
         if st.session_state["opp_view"] == "list":
             table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
-            st.html(css + table_html)
+            row_height = 85
+            height = len(opportunities) * row_height + 120
+            components.html(css + table_html, height=height, scrolling=False)
         else:
             cards_html = _build_opportunities_cards(opportunities, merged_df, price_history_df, favorites)
-            st.html(css + cards_html)
+            cols_per_row = 4
+            card_height = 420
+            rows = (len(opportunities) + cols_per_row - 1) // cols_per_row
+            height = rows * card_height + 60
+            components.html(css + cards_html, height=height, scrolling=False)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
 
