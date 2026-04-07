@@ -692,7 +692,8 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d")
 
     with fc9:
-        location_filter = st.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"], key="opp_loc")
+        all_locations = sorted(merged_df["location"].dropna().unique().tolist())
+        location_filter = st.multiselect("Ubicación", all_locations, placeholder="Todas", key="opp_loc")
 
     # --- Apply Filters ---
     df = merged_df.copy()
@@ -712,10 +713,8 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         (df["price_usd"].fillna(0) >= price_range[0]) & (df["price_usd"].fillna(0) <= price_range[1])
     ]
 
-    if location_filter == "Buenos Aires":
-        df = df[df["location"].str.contains("Buenos Aires|Capital Federal|CABA|GBA", case=False, na=False)]
-    elif location_filter == "Otras provincias":
-        df = df[~df["location"].str.contains("Buenos Aires|Capital Federal|CABA|GBA", case=False, na=False)]
+    if location_filter:
+        df = df[df["location"].isin(location_filter)]
 
     # --- Opportunities (using net profit) ---
     opportunities = df[df["net_profit_usd"] >= min_profit].sort_values(
