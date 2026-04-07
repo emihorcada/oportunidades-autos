@@ -593,7 +593,8 @@ def main():
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
-    [data-testid="stButton"] button[kind="secondary"] { background-color: #444 !important; color: #fff !important; border-color: #444 !important; font-size: 11px !important; }
+    [data-testid="stButton"] button[kind="secondary"] { background-color: #444 !important; color: #fff !important; border-color: #444 !important; font-size: 10px !important; }
+    [data-testid="stButton"] button[kind="secondary"] p::first-letter { font-size: 20px !important; }
     h1 { font-size: 1.4rem !important; }
     h2 { font-size: 1rem !important; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
