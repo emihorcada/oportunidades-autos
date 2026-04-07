@@ -429,7 +429,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
 
     rows_html = "".join(rows)
     html = f"""
-    <div class="opp-table-wrap" style="height: calc(100vh - 220px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;" id="opp-table-wrap">
+    <div class="opp-table-wrap" style="border-radius: 6px; border: 1px solid #ddd;" id="opp-table-wrap">
     <table class="opp-table">
         <thead>
             <tr>
@@ -904,10 +904,10 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         css = _build_css()
         if st.session_state["opp_view"] == "list":
             table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
-            st.html(css + table_html)
+            st.markdown(css + table_html, unsafe_allow_html=True)
         else:
             cards_html = _build_opportunities_cards(opportunities, merged_df, price_history_df, favorites)
-            st.html(css + cards_html)
+            st.markdown(css + cards_html, unsafe_allow_html=True)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
 
@@ -995,7 +995,7 @@ def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=No
 
     cards_html = "".join(cards)
     html = f"""
-    <div style="height:calc(100vh - 220px);overflow-y:auto;padding:4px 0" id="opp-table-wrap">
+    <div style="padding:4px 0" id="opp-table-wrap">
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding:4px 2px;">
         {cards_html}
     </div>
