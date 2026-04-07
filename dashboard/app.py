@@ -610,6 +610,9 @@ def main():
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
     [data-testid="stButton"] button[kind="secondary"] { background-color: #444 !important; color: #fff !important; border-color: #444 !important; font-size: 10px !important; }
     [data-testid="stButton"] button[kind="secondary"] p::first-letter { font-size: 20px !important; }
+    [data-testid="stButton"]:has(button[key="btn_view_list"]) button,
+    [data-testid="stButton"]:has(button[key="btn_view_cards"]) button { background-color: #f0f0f0 !important; color: #333 !important; border-color: #ddd !important; font-size: 18px !important; padding: 4px !important; }
+    button[data-testid="btn_view_list"], button[data-testid="btn_view_cards"] { background-color: #f0f0f0 !important; color: #333 !important; border-color: #ddd !important; font-size: 18px !important; }
     h1 { font-size: 1.4rem !important; }
     h2 { font-size: 1rem !important; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -884,13 +887,11 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
             unsafe_allow_html=True
         )
     with btn_list_col:
-        list_type = "primary" if st.session_state["opp_view"] == "list" else "secondary"
-        if st.button("☰", key="btn_view_list", type=list_type, use_container_width=True):
+        if st.button("☰", key="btn_view_list", type="secondary", use_container_width=True):
             st.session_state["opp_view"] = "list"
             st.rerun()
     with btn_cards_col:
-        cards_type = "primary" if st.session_state["opp_view"] == "cards" else "secondary"
-        if st.button("⊞", key="btn_view_cards", type=cards_type, use_container_width=True):
+        if st.button("⊞", key="btn_view_cards", type="secondary", use_container_width=True):
             st.session_state["opp_view"] = "cards"
             st.rerun()
 
