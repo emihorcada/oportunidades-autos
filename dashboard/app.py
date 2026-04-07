@@ -597,7 +597,7 @@ def main():
     div[data-baseweb="select"] > div {
         border-color: #333 !important;
     }
-    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 1rem !important; }
     </style>
     """)
 
