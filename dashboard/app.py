@@ -725,14 +725,6 @@ def main():
 
 
 def _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df):
-    # --- Update button ---
-    btn_col1, btn_col2 = st.columns([6, 1])
-    with btn_col2:
-        if st.button("Actualizar datos", type="primary", use_container_width=True):
-            _run_scraper()
-            st.cache_data.clear()
-            st.rerun()
-
     if merged_df.empty:
         return
 
@@ -810,7 +802,14 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     )
 
     # --- Opportunities Table ---
-    st.subheader(f"Oportunidades ({len(opportunities)})")
+    title_col, btn_col = st.columns([6, 1])
+    with title_col:
+        st.subheader(f"Oportunidades ({len(opportunities)})")
+    with btn_col:
+        if st.button("Actualizar datos", type="primary", use_container_width=True):
+            _run_scraper()
+            st.cache_data.clear()
+            st.rerun()
 
     if not opportunities.empty:
         css = _build_css()
