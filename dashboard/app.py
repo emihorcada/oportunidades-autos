@@ -711,7 +711,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         return
 
     # --- Filters (single row) ---
-    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1, 1, 1, 1, 2, 2, 2, 2, 2])
+    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2])
 
     with fc1:
         categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
