@@ -686,10 +686,10 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
 
     with fc7:
         price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
-        price_range = st.slider("Precio USD", 0, price_max_val, (0, price_max_val), key="opp_price")
+        price_range = st.slider("Precio", 0, price_max_val, (0, price_max_val), key="opp_price", format="USD %d")
 
     with fc8:
-        min_profit = st.slider("Ganancia mínima neta USD", 500, 10000, 1000, step=250, key="opp_profit")
+        min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d")
 
     with fc9:
         location_filter = st.radio("Ubicación", ["Todas", "Buenos Aires", "Otras provincias"], key="opp_loc")
