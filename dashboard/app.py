@@ -698,20 +698,8 @@ def main():
                 countLabel.textContent = tags.length + ' localidades';
             }
         }
-        function expandIframes() {
-            var iframes = doc.querySelectorAll('iframe[srcdoc]');
-            iframes.forEach(function(iframe) {
-                try {
-                    var inner = iframe.contentDocument || iframe.contentWindow.document;
-                    var h = inner.body.scrollHeight;
-                    if (h > 100) iframe.style.height = (h + 32) + 'px';
-                } catch(e) {}
-            });
-        }
-        new MutationObserver(function() { run(); expandIframes(); }).observe(doc.body, { childList: true, subtree: true, attributes: true });
-        window.parent.addEventListener('resize', expandIframes);
+        new MutationObserver(run).observe(doc.body, { childList: true, subtree: true, attributes: true });
         run();
-        setTimeout(expandIframes, 500);
     })();
     </script>
     """, height=1)
