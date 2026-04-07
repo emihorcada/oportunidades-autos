@@ -588,7 +588,7 @@ def main():
     st.set_page_config(page_title="Detector de Oportunidades", layout="wide", initial_sidebar_state="collapsed")
 
     # Force light theme + full width
-    st.html("""
+    st.markdown("""
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
@@ -687,7 +687,7 @@ def main():
         applyLocationCount();
     })();
     </script>
-    """)
+    """, unsafe_allow_html=True)
 
     st.title("Detector de Oportunidades de Autos")
 
