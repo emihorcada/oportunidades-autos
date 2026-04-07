@@ -458,57 +458,48 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
     </div>
     """
     html += """
+    <style>
+    .fav-star { transition: color 0.15s; }
+    .fav-star:hover { color: #aaa !important; }
+    </style>
     <script>
     (function() {
-        var LS_KEY = 'opp_favorites';
-
+        var LS_KEY = 'opp_favs_v1';
         function getFavs() {
             try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) { return {}; }
         }
-        function saveFavs(favs) {
-            localStorage.setItem(LS_KEY, JSON.stringify(favs));
+        function setFav(key, val) {
+            var favs = getFavs();
+            if (val) favs[key] = true; else delete favs[key];
+            try { localStorage.setItem(LS_KEY, JSON.stringify(favs)); } catch(e) {}
         }
-        function applyFavStars() {
+        function renderStar(el, active) {
+            el.textContent = active ? '★' : '☆';
+            el.style.color = active ? '#555' : '#ccc';
+            el.setAttribute('data-fav', active ? '1' : '0');
+        }
+        function initStars() {
             var favs = getFavs();
             document.querySelectorAll('.fav-star').forEach(function(el) {
                 var key = el.getAttribute('data-fav-key');
-                var isFav = favs[key] === true;
-                el.textContent = isFav ? '★' : '☆';
-                el.style.color = isFav ? '#f5a623' : '#ccc';
-                el.setAttribute('data-fav', isFav ? '1' : '0');
+                // Server state seeds localStorage if not yet set
+                var serverFav = el.getAttribute('data-fav') === '1';
+                var localFav = favs.hasOwnProperty(key) ? favs[key] : serverFav;
+                renderStar(el, localFav);
             });
-        }
-        function initFavsFromServer() {
-            // Seed localStorage from server state (data-fav attr) only if key not yet in localStorage
-            var favs = getFavs();
-            var changed = false;
-            document.querySelectorAll('.fav-star').forEach(function(el) {
-                var key = el.getAttribute('data-fav-key');
-                if (!(key in favs) && el.getAttribute('data-fav') === '1') {
-                    favs[key] = true;
-                    changed = true;
-                }
-            });
-            if (changed) saveFavs(favs);
         }
         document.addEventListener('click', function(e) {
-            var el = e.target.closest('.fav-star');
-            if (!el) return;
+            var el = e.target;
+            if (!el.classList.contains('fav-star')) return;
             e.preventDefault();
             e.stopPropagation();
             var key = el.getAttribute('data-fav-key');
-            var favs = getFavs();
-            favs[key] = !favs[key];
-            if (!favs[key]) delete favs[key];
-            saveFavs(favs);
-            applyFavStars();
-            // Sync to server in background via fetch (no page reload)
-            var url = window.location.href.split('?')[0] + '?toggle_fav=' + encodeURIComponent(key);
-            fetch(url, {method: 'GET', credentials: 'include'}).catch(function(){});
+            var active = el.getAttribute('data-fav') === '1';
+            var newState = !active;
+            setFav(key, newState);
+            renderStar(el, newState);
         });
-
-        initFavsFromServer();
-        applyFavStars();
+        initStars();
 
         // Sort
         var table = document.querySelector('.opp-table');
