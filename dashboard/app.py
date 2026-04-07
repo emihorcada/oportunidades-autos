@@ -870,14 +870,24 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         "net_profit_usd", ascending=False
     )
 
-    # --- Opportunities Table ---
-    st.markdown(
-        f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">'
-        f'{len(opportunities)} Autos &nbsp;·&nbsp; '
-        f'<a href="?refresh=1" style="font-size:0.75rem;font-weight:400;color:#666;text-decoration:none;">↻ Refrescar listado</a>'
-        f'</p>',
-        unsafe_allow_html=True
-    )
+    # --- View toggle + title ---
+    if "opp_view" not in st.session_state:
+        st.session_state["opp_view"] = "list"
+
+    title_col, toggle_col = st.columns([8, 1])
+    with title_col:
+        st.markdown(
+            f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">'
+            f'{len(opportunities)} Autos &nbsp;·&nbsp; '
+            f'<a href="?refresh=1" style="font-size:0.75rem;font-weight:400;color:#666;text-decoration:none;">↻ Refrescar listado</a>'
+            f'</p>',
+            unsafe_allow_html=True
+        )
+    with toggle_col:
+        view_options = {"☰ Lista": "list", "⊞ Cards": "cards"}
+        selected_label = [k for k, v in view_options.items() if v == st.session_state["opp_view"]][0]
+        chosen = st.radio("", list(view_options.keys()), index=list(view_options.keys()).index(selected_label), key="opp_view_radio", horizontal=True, label_visibility="collapsed")
+        st.session_state["opp_view"] = view_options[chosen]
 
     if "refresh" in st.query_params:
         st.query_params.clear()
@@ -887,10 +897,115 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
 
     if not opportunities.empty:
         css = _build_css()
-        table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
-        st.html(css + table_html)
+        if st.session_state["opp_view"] == "list":
+            table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
+            st.html(css + table_html)
+        else:
+            cards_html = _build_opportunities_cards(opportunities, merged_df, price_history_df, favorites)
+            st.html(css + cards_html)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
+
+
+def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=None):
+    if price_history_df is None:
+        price_history_df = pd.DataFrame()
+    if favorites is None:
+        favorites = set()
+
+    cards = []
+    for _, row in df.iterrows():
+        img_url = row.get("image_url", "") or ""
+        url = row.get("url", "") or ""
+        brand = row.get("brand", "")
+        model = row.get("model", "")
+        version = row.get("version", "")
+        year = int(row["year"]) if pd.notna(row.get("year")) else ""
+        km = _fmt(row.get("km"))
+        price_usd = _fmt(row.get("price_usd"))
+        median_usd = _fmt(row.get("median_price_usd"))
+        suggested_usd = _fmt(row.get("suggested_price_usd"))
+        location = row.get("location", "")
+        source = row.get("source", "")
+        category = row.get("category", "") or ""
+        transmission = row.get("transmission", "") or ""
+
+        net_profit = row.get("net_profit_usd")
+        travel_cost = row.get("travel_cost_usd", 0) or 0
+        profit_color = "#1a8a4a" if net_profit and net_profit > 0 else "#cc3333"
+        profit_str = f"USD {_fmt(net_profit)}" if net_profit else "—"
+
+        aging_raw = row.get("aging_days")
+        if aging_raw is not None and not (isinstance(aging_raw, float) and pd.isna(aging_raw)):
+            aging_days = int(aging_raw)
+            if aging_days <= 7: aging_color, aging_label = "#1a8a4a", f"{aging_days}d"
+            elif aging_days <= 21: aging_color, aging_label = "#cc8800", f"{aging_days}d"
+            else: aging_color, aging_label = "#cc3333", f"{aging_days}d"
+        else:
+            aging_color, aging_label = "#999", "—"
+
+        photo = f'<img src="{img_url}" style="width:100%;height:180px;object-fit:cover;border-radius:8px 8px 0 0;display:block">' if img_url else f'<div style="width:100%;height:180px;background:#f0f0f0;border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;color:#aaa;font-size:13px">Sin foto</div>'
+        link_open = f'<a href="{url}" target="_blank" style="text-decoration:none;color:inherit">' if url else ''
+        link_close = '</a>' if url else ''
+
+        row_source = row.get("source", "")
+        row_source_id = row.get("source_id", "")
+        is_fav = (row_source, row_source_id) in favorites
+        fav_color = "#555" if is_fav else "#ccc"
+        fav_icon = "★" if is_fav else "☆"
+        fav_html = f'<span onclick="toggleFav(this)" style="font-size:18px;cursor:pointer;user-select:none;color:{fav_color}" onmouseover="if(this.dataset.fav!=\'1\')this.style.color=\'#aaa\'" onmouseout="if(this.dataset.fav!=\'1\')this.style.color=\'#ccc\'" data-fav="{"1" if is_fav else "0"}">{fav_icon}</span>'
+
+        cards.append(f"""
+        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;font-family:Arial,sans-serif;font-size:13px;">
+            {link_open}{photo}{link_close}
+            <div style="padding:12px;flex:1;display:flex;flex-direction:column;gap:6px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <div>
+                        <div style="font-weight:700;font-size:14px;">{brand} {model}</div>
+                        <div style="color:#666;font-size:11px;">{version}</div>
+                    </div>
+                    {fav_html}
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                    <span style="background:#f5f5f5;border-radius:4px;padding:2px 7px;font-size:11px;">{year}</span>
+                    <span style="background:#f5f5f5;border-radius:4px;padding:2px 7px;font-size:11px;">{km} km</span>
+                    {"<span style='background:#f5f5f5;border-radius:4px;padding:2px 7px;font-size:11px;'>" + transmission + "</span>" if transmission else ""}
+                </div>
+                <div style="border-top:1px solid #f0f0f0;padding-top:6px;display:grid;grid-template-columns:1fr 1fr;gap:4px;">
+                    <div><div style="font-size:10px;color:#999;text-transform:uppercase;">Precio</div><div style="font-weight:700;">USD {price_usd}</div></div>
+                    <div><div style="font-size:10px;color:#999;text-transform:uppercase;">Mediana</div><div style="font-weight:600;color:#555;">USD {median_usd}</div></div>
+                    <div><div style="font-size:10px;color:#999;text-transform:uppercase;">Venderlo a</div><div style="font-weight:600;color:#555;">USD {suggested_usd}</div></div>
+                    <div><div style="font-size:10px;color:#999;text-transform:uppercase;">Ganancia</div><div style="font-weight:700;color:{profit_color};">{profit_str}</div></div>
+                </div>
+                <div style="border-top:1px solid #f0f0f0;padding-top:6px;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="color:#666;font-size:11px;">📍 {location}</span>
+                    <span style="color:{aging_color};font-size:11px;font-weight:600;">{aging_label}</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span style="background:#f0f0f0;border-radius:4px;padding:2px 7px;font-size:10px;color:#555;">{category}</span>
+                    <span style="font-size:10px;color:#999;">{source}</span>
+                </div>
+            </div>
+        </div>""")
+
+    cards_html = "".join(cards)
+    html = f"""
+    <div style="height:calc(100vh - 220px);overflow-y:auto;padding:4px 0" id="opp-table-wrap">
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;padding:4px 2px;">
+        {cards_html}
+    </div>
+    </div>
+    <script>
+    function toggleFav(el) {{
+        var active = el.dataset.fav === '1';
+        var newActive = !active;
+        el.dataset.fav = newActive ? '1' : '0';
+        el.textContent = newActive ? '★' : '☆';
+        el.style.color = newActive ? '#555' : '#ccc';
+    }}
+    </script>
+    """
+    return html
 
 
 def _render_price_calculator(merged_df):
