@@ -619,9 +619,7 @@ def main():
     button[data-baseweb="tab"]:hover { background-color: #f0f0f0 !important; border-radius: 4px; }
     [data-testid="stSlider"] > div > div > div > div { background-color: #333 !important; }
     div[data-baseweb="select"] > div { border-color: #333 !important; }
-    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; padding-bottom: 0 !important; }
-    .main { overflow: hidden !important; }
-    section[data-testid="stMain"] { overflow: hidden !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; padding-bottom: 2rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
     [data-testid="stVerticalBlockBorderWrapper"] {
         position: sticky;
