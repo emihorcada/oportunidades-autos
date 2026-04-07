@@ -703,17 +703,20 @@ def main():
                 countLabel.textContent = tags.length + ' localidades';
             }
         }
-        function fitTableHeight() {
-            var wrap = doc.getElementById('opp-table-wrap');
-            if (!wrap) return;
-            var top = wrap.getBoundingClientRect().top;
-            var available = window.parent.innerHeight - top - 4;
-            if (available > 100) wrap.style.height = available + 'px';
+        function expandIframes() {
+            var iframes = doc.querySelectorAll('iframe[srcdoc]');
+            iframes.forEach(function(iframe) {
+                try {
+                    var inner = iframe.contentDocument || iframe.contentWindow.document;
+                    var h = inner.body.scrollHeight;
+                    if (h > 100) iframe.style.height = (h + 32) + 'px';
+                } catch(e) {}
+            });
         }
-        new MutationObserver(function() { run(); fitTableHeight(); }).observe(doc.body, { childList: true, subtree: true, attributes: true });
-        window.parent.addEventListener('resize', fitTableHeight);
+        new MutationObserver(function() { run(); expandIframes(); }).observe(doc.body, { childList: true, subtree: true, attributes: true });
+        window.parent.addEventListener('resize', expandIframes);
         run();
-        fitTableHeight();
+        setTimeout(expandIframes, 500);
     })();
     </script>
     """, height=1)
@@ -905,10 +908,10 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         css = _build_css()
         if st.session_state["opp_view"] == "list":
             table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
-            st.markdown(css + table_html, unsafe_allow_html=True)
+            st.html(css + table_html)
         else:
             cards_html = _build_opportunities_cards(opportunities, merged_df, price_history_df, favorites)
-            st.markdown(css + cards_html, unsafe_allow_html=True)
+            st.html(css + cards_html)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")
 
