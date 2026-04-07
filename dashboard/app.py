@@ -600,22 +600,21 @@ def main():
     div[data-baseweb="select"] > div { border-color: #333 !important; }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
-    .filters-box {
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) {
         position: sticky;
         top: 0;
         z-index: 100;
         background: #ffffff;
         border: 1px solid #ddd;
         border-radius: 10px;
-        padding: 10px 14px;
+        padding: 10px 14px !important;
         margin-bottom: 12px;
     }
-    .filters-box label { font-size: 11px !important; }
-    .filters-box input, .filters-box [data-baseweb="select"] span { font-size: 12px !important; }
-    .filters-box [data-testid="stMultiSelect"] label,
-    .filters-box [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
-    .filters-box [data-testid="stMultiSelect"] input { font-size: 11px !important; }
-    .filters-box [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 34px !important; }
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) label { font-size: 11px !important; }
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) input,
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-baseweb="select"] span { font-size: 12px !important; }
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-testid="stMultiSelect"] input { font-size: 11px !important; }
     </style>
     """, unsafe_allow_html=True)
     components.html("""
@@ -688,7 +687,7 @@ def main():
         run();
     })();
     </script>
-    """, height=0)
+    """, height=1)
 
     st.title("Detector de Oportunidades de Autos")
 
