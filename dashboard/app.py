@@ -403,14 +403,13 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
         row_source = row.get("source", "")
         row_source_id = row.get("source_id", "")
         is_fav = (row_source, row_source_id) in favorites
-        fav_icon = "★" if is_fav else "☆"
-        fav_color = "#f5a623" if is_fav else "#bbb"
         fav_key = f"{row_source}|{row_source_id}"
-        fav_html = f'<a href="?toggle_fav={fav_key}" style="font-size:18px;color:{fav_color};text-decoration:none;cursor:pointer;" title="{"Quitar de favoritos" if is_fav else "Agregar a favoritos"}">{fav_icon}</a>'
+        fav_state = "1" if is_fav else "0"
+        fav_html = f'<span class="fav-star" data-fav-key="{fav_key}" data-fav="{fav_state}" style="font-size:18px;cursor:pointer;user-select:none;color:{"#f5a623" if is_fav else "#ccc"}">{"★" if is_fav else "☆"}</span>'
 
         rows.append(f"""
         <tr>
-            <td data-sort="0" style="text-align:center">{fav_html}</td>
+            <td data-sort="0" style="text-align:center;padding:0 8px">{fav_html}</td>
             <td data-sort="0">{photo_html}</td>
             <td data-sort="{brand}">{brand}</td>
             <td data-sort="{model} {version}">{model} {version}</td>
@@ -461,6 +460,57 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
     html += """
     <script>
     (function() {
+        var LS_KEY = 'opp_favorites';
+
+        function getFavs() {
+            try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) { return {}; }
+        }
+        function saveFavs(favs) {
+            localStorage.setItem(LS_KEY, JSON.stringify(favs));
+        }
+        function applyFavStars() {
+            var favs = getFavs();
+            document.querySelectorAll('.fav-star').forEach(function(el) {
+                var key = el.getAttribute('data-fav-key');
+                var isFav = favs[key] === true;
+                el.textContent = isFav ? '★' : '☆';
+                el.style.color = isFav ? '#f5a623' : '#ccc';
+                el.setAttribute('data-fav', isFav ? '1' : '0');
+            });
+        }
+        function initFavsFromServer() {
+            // Seed localStorage from server state (data-fav attr) only if key not yet in localStorage
+            var favs = getFavs();
+            var changed = false;
+            document.querySelectorAll('.fav-star').forEach(function(el) {
+                var key = el.getAttribute('data-fav-key');
+                if (!(key in favs) && el.getAttribute('data-fav') === '1') {
+                    favs[key] = true;
+                    changed = true;
+                }
+            });
+            if (changed) saveFavs(favs);
+        }
+        document.addEventListener('click', function(e) {
+            var el = e.target.closest('.fav-star');
+            if (!el) return;
+            e.preventDefault();
+            e.stopPropagation();
+            var key = el.getAttribute('data-fav-key');
+            var favs = getFavs();
+            favs[key] = !favs[key];
+            if (!favs[key]) delete favs[key];
+            saveFavs(favs);
+            applyFavStars();
+            // Sync to server in background via fetch (no page reload)
+            var url = window.location.href.split('?')[0] + '?toggle_fav=' + encodeURIComponent(key);
+            fetch(url, {method: 'GET', credentials: 'include'}).catch(function(){});
+        });
+
+        initFavsFromServer();
+        applyFavStars();
+
+        // Sort
         var table = document.querySelector('.opp-table');
         if (!table) return;
         var headers = table.querySelectorAll('th');
@@ -473,19 +523,14 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
                 var asc = sortState[colIdx] !== 'asc';
                 sortState = {};
                 sortState[colIdx] = asc ? 'asc' : 'desc';
-                // Update arrows
-                headers.forEach(function(h) {
-                    h.querySelector('.sort-arrow').textContent = '';
-                });
+                headers.forEach(function(h) { h.querySelector('.sort-arrow').textContent = ''; });
                 th.querySelector('.sort-arrow').textContent = asc ? ' ▲' : ' ▼';
                 rows.sort(function(a, b) {
                     var aVal = a.cells[colIdx].getAttribute('data-sort') || a.cells[colIdx].textContent;
                     var bVal = b.cells[colIdx].getAttribute('data-sort') || b.cells[colIdx].textContent;
                     var aNum = parseFloat(aVal);
                     var bNum = parseFloat(bVal);
-                    if (!isNaN(aNum) && !isNaN(bNum)) {
-                        return asc ? aNum - bNum : bNum - aNum;
-                    }
+                    if (!isNaN(aNum) && !isNaN(bNum)) { return asc ? aNum - bNum : bNum - aNum; }
                     return asc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
                 });
                 rows.forEach(function(row) { tbody.appendChild(row); });
