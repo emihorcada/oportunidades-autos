@@ -646,17 +646,13 @@ def main():
             applyLocationCount();
         }
         function applyFiltersBox() {
-            var marker = doc.querySelector('.filters-start-marker');
-            if (!marker) return;
-            var block = marker.closest('[data-testid="stVerticalBlock"]');
-            if (!block) return;
-            var rows = block.querySelectorAll('[data-testid="stHorizontalBlock"]');
-            for (var i = 0; i < rows.length; i++) {
-                var cols = rows[i].querySelectorAll('[data-testid="column"]');
-                if (cols.length === 9 && !rows[i].classList.contains('filters-box')) {
-                    rows[i].classList.add('filters-box');
-                }
-            }
+            var wrapper = doc.querySelector('[data-testid="stVerticalBlockBorderWrapper"]');
+            if (!wrapper) return;
+            wrapper.style.position = 'sticky';
+            wrapper.style.top = '0';
+            wrapper.style.zIndex = '100';
+            wrapper.style.background = '#ffffff';
+            wrapper.style.boxShadow = '0 2px 8px rgba(0,0,0,0.06)';
         }
         function applyLoadingState() {
             var status = doc.querySelector('[data-testid="stStatusWidget"]');
