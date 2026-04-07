@@ -403,9 +403,9 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
         row_source = row.get("source", "")
         row_source_id = row.get("source_id", "")
         is_fav = (row_source, row_source_id) in favorites
-        fav_key = f"{row_source}|{row_source_id}"
-        fav_state = "1" if is_fav else "0"
-        fav_html = f'<span class="fav-star" data-fav-key="{fav_key}" data-fav="{fav_state}" style="font-size:18px;cursor:pointer;user-select:none;color:{"#f5a623" if is_fav else "#ccc"}">{"★" if is_fav else "☆"}</span>'
+        fav_color = "#555" if is_fav else "#ccc"
+        fav_icon = "★" if is_fav else "☆"
+        fav_html = f'<span onclick="toggleFav(this)" style="font-size:18px;cursor:pointer;user-select:none;color:{fav_color}" onmouseover="if(this.dataset.fav!=\'1\')this.style.color=\'#aaa\'" onmouseout="if(this.dataset.fav!=\'1\')this.style.color=\'#ccc\'" data-fav="{"1" if is_fav else "0"}">{fav_icon}</span>'
 
         rows.append(f"""
         <tr>
@@ -458,49 +458,16 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
     </div>
     """
     html += """
-    <style>
-    .fav-star { transition: color 0.15s; }
-    .fav-star:hover { color: #aaa !important; }
-    </style>
     <script>
-    (function() {
-        var LS_KEY = 'opp_favs_v1';
-        function getFavs() {
-            try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) { return {}; }
-        }
-        function setFav(key, val) {
-            var favs = getFavs();
-            if (val) favs[key] = true; else delete favs[key];
-            try { localStorage.setItem(LS_KEY, JSON.stringify(favs)); } catch(e) {}
-        }
-        function renderStar(el, active) {
-            el.textContent = active ? '★' : '☆';
-            el.style.color = active ? '#555' : '#ccc';
-            el.setAttribute('data-fav', active ? '1' : '0');
-        }
-        function initStars() {
-            var favs = getFavs();
-            document.querySelectorAll('.fav-star').forEach(function(el) {
-                var key = el.getAttribute('data-fav-key');
-                // Server state seeds localStorage if not yet set
-                var serverFav = el.getAttribute('data-fav') === '1';
-                var localFav = favs.hasOwnProperty(key) ? favs[key] : serverFav;
-                renderStar(el, localFav);
-            });
-        }
-        document.addEventListener('click', function(e) {
-            var el = e.target;
-            if (!el.classList.contains('fav-star')) return;
-            e.preventDefault();
-            e.stopPropagation();
-            var key = el.getAttribute('data-fav-key');
-            var active = el.getAttribute('data-fav') === '1';
-            var newState = !active;
-            setFav(key, newState);
-            renderStar(el, newState);
-        });
-        initStars();
+    function toggleFav(el) {
+        var active = el.dataset.fav === '1';
+        var newActive = !active;
+        el.dataset.fav = newActive ? '1' : '0';
+        el.textContent = newActive ? '★' : '☆';
+        el.style.color = newActive ? '#555' : '#ccc';
+    }
 
+    (function() {
         // Sort
         var table = document.querySelector('.opp-table');
         if (!table) return;
