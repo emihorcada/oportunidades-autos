@@ -418,7 +418,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
 
     rows_html = "".join(rows)
     html = f"""
-    <div style="height: calc(100vh - 280px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
+    <div class="opp-table-wrap" style="height: calc(100vh - 280px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
     <table class="opp-table">
         <thead>
             <tr>
@@ -592,6 +592,7 @@ def main():
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     button[data-baseweb="tab"]:hover { background-color: #f0f0f0 !important; border-radius: 4px; }
     [data-testid="stSlider"] > div > div > div > div {
         background-color: #333 !important;
@@ -627,8 +628,35 @@ def main():
                 }
             }
         }
-        var observer = new MutationObserver(function() { makeStickyFilters(); applyLocationCount(); });
-        observer.observe(document.body, { childList: true, subtree: true });
+        // Loading overlay on table
+        function applyLoadingState(isRunning) {
+            var tableWrap = document.querySelector('.opp-table-wrap');
+            if (!tableWrap) return;
+            var overlay = tableWrap.querySelector('.opp-loading-overlay');
+            if (isRunning) {
+                tableWrap.style.position = 'relative';
+                if (!overlay) {
+                    overlay = document.createElement('div');
+                    overlay.className = 'opp-loading-overlay';
+                    overlay.style.cssText = 'position:absolute;inset:0;background:rgba(255,255,255,0.65);display:flex;align-items:center;justify-content:center;z-index:50;border-radius:6px;font-size:15px;color:#555;font-weight:600;gap:8px;';
+                    overlay.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#888" stroke-width="2.5" style="animation:spin 1s linear infinite"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> Cargando autos...';
+                    tableWrap.appendChild(overlay);
+                }
+                overlay.style.display = 'flex';
+            } else {
+                if (overlay) overlay.style.display = 'none';
+            }
+        }
+
+        // Watch Streamlit running state via status widget
+        function checkRunning() {
+            var status = document.querySelector('[data-testid="stStatusWidget"]');
+            var isRunning = status && status.querySelector('[title="Running"]') !== null;
+            applyLoadingState(isRunning);
+        }
+
+        var observer = new MutationObserver(function() { makeStickyFilters(); applyLocationCount(); checkRunning(); });
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true });
         makeStickyFilters();
 
         function applyLocationCount() {
