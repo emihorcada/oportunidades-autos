@@ -418,7 +418,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
 
     rows_html = "".join(rows)
     html = f"""
-    <div style="max-height: 720px; overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
+    <div style="height: calc(100vh - 280px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
     <table class="opp-table">
         <thead>
             <tr>
@@ -599,9 +599,32 @@ def main():
     }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
+    .sticky-filters {
+        position: sticky;
+        top: 0;
+        z-index: 100;
+        background: #ffffff;
+        padding: 8px 0 4px 0;
+        border-bottom: 1px solid #e0e0e0;
+        margin-bottom: 8px;
+    }
     </style>
     <script>
     (function() {
+        function makeStickyFilters() {
+            var rows = document.querySelectorAll('[data-testid="stHorizontalBlock"]');
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var cols = row.querySelectorAll('[data-testid="column"]');
+                if (cols.length === 9 && !row.classList.contains('sticky-filters')) {
+                    row.classList.add('sticky-filters');
+                }
+            }
+        }
+        var observer = new MutationObserver(function() { makeStickyFilters(); applyLocationCount(); });
+        observer.observe(document.body, { childList: true, subtree: true });
+        makeStickyFilters();
+
         function applyLocationCount() {
             var multiselects = document.querySelectorAll('[data-testid="stMultiSelect"]');
             for (var i = 0; i < multiselects.length; i++) {
@@ -626,8 +649,6 @@ def main():
                 countLabel.textContent = tags.length + ' localidades';
             }
         }
-        var observer = new MutationObserver(applyLocationCount);
-        observer.observe(document.body, { childList: true, subtree: true });
         applyLocationCount();
     })();
     </script>
