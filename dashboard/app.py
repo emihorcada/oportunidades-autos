@@ -592,6 +592,7 @@ def main():
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
+    h1 { font-size: 1.4rem !important; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     button[data-baseweb="tab"]:hover { background-color: #f0f0f0 !important; border-radius: 4px; }
     [data-testid="stSlider"] > div > div > div > div {
