@@ -806,7 +806,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     # --- Opportunities Table ---
     title_col, btn_col = st.columns([6, 1])
     with title_col:
-        st.markdown(f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">Oportunidades ({len(opportunities)})</p>', unsafe_allow_html=True)
+        st.markdown(f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">{len(opportunities)} Autos</p>', unsafe_allow_html=True)
     with btn_col:
         if st.button("↻  Refrescar Listado", type="secondary", use_container_width=True):
             _run_scraper()
