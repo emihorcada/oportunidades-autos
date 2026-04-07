@@ -627,6 +627,7 @@ def main():
         z-index: 100;
         background: #ffffff;
         margin-bottom: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.06);
     }
     [data-testid="stVerticalBlockBorderWrapper"] label { font-size: 11px !important; }
     [data-testid="stVerticalBlockBorderWrapper"] input,
