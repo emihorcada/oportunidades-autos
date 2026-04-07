@@ -872,9 +872,9 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
 
     # --- View toggle + title ---
     if "opp_view" not in st.session_state:
-        st.session_state["opp_view"] = "list"
+        st.session_state["opp_view"] = "cards"
 
-    title_col, toggle_col = st.columns([8, 1])
+    title_col, btn_list_col, btn_cards_col = st.columns([8, 0.6, 0.6])
     with title_col:
         st.markdown(
             f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">'
@@ -883,11 +883,16 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
             f'</p>',
             unsafe_allow_html=True
         )
-    with toggle_col:
-        view_options = {"☰ Lista": "list", "⊞ Cards": "cards"}
-        selected_label = [k for k, v in view_options.items() if v == st.session_state["opp_view"]][0]
-        chosen = st.radio("", list(view_options.keys()), index=list(view_options.keys()).index(selected_label), key="opp_view_radio", horizontal=True, label_visibility="collapsed")
-        st.session_state["opp_view"] = view_options[chosen]
+    with btn_list_col:
+        list_type = "primary" if st.session_state["opp_view"] == "list" else "secondary"
+        if st.button("☰", key="btn_view_list", type=list_type, use_container_width=True):
+            st.session_state["opp_view"] = "list"
+            st.rerun()
+    with btn_cards_col:
+        cards_type = "primary" if st.session_state["opp_view"] == "cards" else "secondary"
+        if st.button("⊞", key="btn_view_cards", type=cards_type, use_container_width=True):
+            st.session_state["opp_view"] = "cards"
+            st.rerun()
 
     if "refresh" in st.query_params:
         st.query_params.clear()
@@ -956,7 +961,7 @@ def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=No
         fav_html = f'<span onclick="toggleFav(this)" style="font-size:18px;cursor:pointer;user-select:none;color:{fav_color}" onmouseover="if(this.dataset.fav!=\'1\')this.style.color=\'#aaa\'" onmouseout="if(this.dataset.fav!=\'1\')this.style.color=\'#ccc\'" data-fav="{"1" if is_fav else "0"}">{fav_icon}</span>'
 
         cards.append(f"""
-        <div style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;font-family:Arial,sans-serif;font-size:13px;">
+        <div class="opp-card" style="background:#fff;border:1px solid #e0e0e0;border-radius:10px;overflow:hidden;display:flex;flex-direction:column;font-family:Arial,sans-serif;font-size:13px;transition:transform 0.18s ease,box-shadow 0.18s ease;">
             {link_open}{photo}{link_close}
             <div style="padding:12px;flex:1;display:flex;flex-direction:column;gap:6px;">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -995,6 +1000,9 @@ def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=No
         {cards_html}
     </div>
     </div>
+    <style>
+    .opp-card:hover {{ transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }}
+    </style>
     <script>
     function toggleFav(el) {{
         var active = el.dataset.fav === '1';
