@@ -598,7 +598,39 @@ def main():
         border-color: #333 !important;
     }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
+    [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
     </style>
+    <script>
+    (function() {
+        function applyLocationCount() {
+            var multiselects = document.querySelectorAll('[data-testid="stMultiSelect"]');
+            for (var i = 0; i < multiselects.length; i++) {
+                var ms = multiselects[i];
+                var label = ms.querySelector('label');
+                if (!label || label.textContent.trim() !== 'Ubicación') continue;
+                var tags = ms.querySelectorAll('[data-baseweb="tag"]');
+                var countLabel = ms.querySelector('.loc-count-label');
+                if (tags.length <= 1) {
+                    if (countLabel) countLabel.remove();
+                    for (var t = 0; t < tags.length; t++) tags[t].style.display = '';
+                    continue;
+                }
+                for (var t = 0; t < tags.length; t++) tags[t].style.display = 'none';
+                if (!countLabel) {
+                    countLabel = document.createElement('div');
+                    countLabel.className = 'loc-count-label';
+                    countLabel.style.cssText = 'padding: 2px 8px; font-size: 14px; color: #333; font-weight: 500; pointer-events: none; white-space: nowrap;';
+                    var inputContainer = ms.querySelector('[data-baseweb="select"] > div');
+                    if (inputContainer) inputContainer.prepend(countLabel);
+                }
+                countLabel.textContent = tags.length + ' localidades';
+            }
+        }
+        var observer = new MutationObserver(applyLocationCount);
+        observer.observe(document.body, { childList: true, subtree: true });
+        applyLocationCount();
+    })();
+    </script>
     """)
 
     st.title("Detector de Oportunidades de Autos")
@@ -652,7 +684,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         return
 
     # --- Filters (single row) ---
-    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns(9)
+    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1, 1, 1, 1, 2, 2, 2, 2, 3])
 
     with fc1:
         categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
@@ -693,7 +725,9 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
 
     with fc9:
         all_locations = sorted(merged_df["location"].dropna().unique().tolist())
-        location_filter = st.multiselect("Ubicación", all_locations, placeholder="Todas", key="opp_loc")
+        prev_selected = st.session_state.get("opp_loc", [])
+        sorted_locations = [x for x in prev_selected if x in all_locations] + [x for x in all_locations if x not in prev_selected]
+        location_filter = st.multiselect("Ubicación", sorted_locations, placeholder="Todas", key="opp_loc")
 
     # --- Apply Filters ---
     df = merged_df.copy()
