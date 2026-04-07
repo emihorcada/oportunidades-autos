@@ -612,10 +612,16 @@ def main():
         top: 0;
         z-index: 100;
         background: #ffffff;
-        padding: 8px 0 4px 0;
-        border-bottom: 1px solid #e0e0e0;
-        margin-bottom: 8px;
+        padding: 10px 14px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        margin-bottom: 12px;
     }
+    .sticky-filters label { font-size: 11px !important; }
+    .sticky-filters [data-baseweb="select"] span,
+    .sticky-filters [data-baseweb="select"] div[role="option"],
+    .sticky-filters input { font-size: 12px !important; }
+    .sticky-filters [data-testid="stSlider"] [data-testid="stMarkdownContainer"] p { font-size: 11px !important; }
     </style>
     <script>
     (function() {
