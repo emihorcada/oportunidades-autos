@@ -599,6 +599,10 @@ def main():
     }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
+    .sticky-filters [data-testid="stMultiSelect"] label,
+    .sticky-filters [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+    .sticky-filters [data-testid="stMultiSelect"] input { font-size: 11px !important; }
+    .sticky-filters [data-testid="stMultiSelect"] [data-baseweb="select"] > div { min-height: 34px !important; }
     .sticky-filters {
         position: sticky;
         top: 0;
@@ -705,7 +709,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         return
 
     # --- Filters (single row) ---
-    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1, 1, 1, 1, 2, 2, 2, 2, 3])
+    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1, 1, 1, 1, 2, 2, 2, 2, 2])
 
     with fc1:
         categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
