@@ -664,10 +664,10 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     with fc2:
         if selected_brand != "Todas":
             models = ["Todos"] + sorted(
-                merged_df[merged_df["brand"] == selected_brand]["model"].dropna().unique().tolist()
+                merged_df[merged_df["brand"] == selected_brand]["model"].dropna().str.strip().unique().tolist()
             )
         else:
-            models = ["Todos"] + sorted(merged_df["model"].dropna().unique().tolist())
+            models = ["Todos"] + sorted(merged_df["model"].dropna().str.strip().unique().tolist())
         selected_model = st.selectbox("Modelo", models, key="opp_model")
 
         sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
@@ -744,15 +744,15 @@ def _render_price_calculator(merged_df):
 
     with c2:
         brand_models = sorted(
-            merged_df[merged_df["brand"] == calc_brand]["model"].dropna().unique().tolist()
+            merged_df[merged_df["brand"] == calc_brand]["model"].dropna().str.strip().unique().tolist()
         )
         calc_model = st.selectbox("Modelo", brand_models, key="calc_model")
 
     with c3:
         model_versions = sorted(
             merged_df[
-                (merged_df["brand"] == calc_brand) & (merged_df["model"] == calc_model)
-            ]["version"].dropna().unique().tolist()
+                (merged_df["brand"] == calc_brand) & (merged_df["model"].str.strip() == calc_model)
+            ]["version"].dropna().str.strip().unique().tolist()
         )
         if model_versions:
             calc_version = st.selectbox("Versión (opcional)", ["Cualquiera"] + model_versions, key="calc_version")
@@ -854,94 +854,94 @@ def _render_price_calculator(merged_df):
         st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model}. Se encontró solo {len(comps)} publicación.")
         return
 
-        prices = sorted(comps["price_usd"].tolist())
+    prices = sorted(comps["price_usd"].tolist())
 
-        # Remove top 20%
-        import math
-        cut = max(1, math.ceil(len(prices) * 0.20))
-        filtered_prices = prices[:-cut] if len(prices) > 2 else prices
+    # Remove top 20%
+    import math
+    cut = max(1, math.ceil(len(prices) * 0.20))
+    filtered_prices = prices[:-cut] if len(prices) > 2 else prices
 
-        p25 = float(np.percentile(filtered_prices, 25))
-        p50 = float(np.median(filtered_prices))
-        p75 = float(np.percentile(filtered_prices, 75))
+    p25 = float(np.percentile(filtered_prices, 25))
+    p50 = float(np.median(filtered_prices))
+    p75 = float(np.percentile(filtered_prices, 75))
 
-        scenarios = {
-            "Agresivo": {"price": round(p25), "desc": "Venta rápida (percentil 25)", "color": "#cc3333"},
-            "Moderado": {"price": round(p50), "desc": "Precio equilibrado (mediana)", "color": "#cc8800"},
-            "Conservador": {"price": round(p75), "desc": "Maximizar precio (percentil 75)", "color": "#1a8a4a"},
-        }
+    scenarios = {
+        "Agresivo": {"price": round(p25), "desc": "Venta rápida (percentil 25)", "color": "#cc3333"},
+        "Moderado": {"price": round(p50), "desc": "Precio equilibrado (mediana)", "color": "#cc8800"},
+        "Conservador": {"price": round(p75), "desc": "Maximizar precio (percentil 75)", "color": "#1a8a4a"},
+    }
 
-        st.divider()
-        st.subheader("Resultado")
-        st.write(f"**{calc_brand} {calc_model} {calc_year}** — entre {calc_km_min:,} y {calc_km_max:,} km")
-        st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used}, se descartó el 20% más caro)")
+    st.divider()
+    st.subheader("Resultado")
+    st.write(f"**{calc_brand} {calc_model} {calc_year}** — entre {calc_km_min:,} y {calc_km_max:,} km")
+    st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used}, se descartó el 20% más caro)")
 
-        # Cards for each scenario
-        cols = st.columns(3)
-        for i, (name, data) in enumerate(scenarios.items()):
-            price = data["price"]
-            if is_percentage:
-                commission = round(price * commission_value)
-            else:
-                commission = commission_value
-            seller_gets = price - commission
+    # Cards for each scenario
+    cols = st.columns(3)
+    for i, (name, data) in enumerate(scenarios.items()):
+        price = data["price"]
+        if is_percentage:
+            commission = round(price * commission_value)
+        else:
+            commission = commission_value
+        seller_gets = price - commission
 
-            with cols[i]:
-                st.html(f"""
-                <div style="background: #f9f9f9; border-radius: 10px; padding: 20px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
-                    <div style="font-size: 14px; color: #666; margin-bottom: 4px;">{name}</div>
-                    <div style="font-size: 11px; color: #999; margin-bottom: 12px;">{data['desc']}</div>
-                    <div style="font-size: 28px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
-                    <div style="margin-top: 12px; font-size: 13px; color: #555;">
-                        <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
-                            <span>Precio de venta</span><span><b>USD {price:,}</b></span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
-                            <span>Tu comisión</span><span style="color:{data['color']}"><b>USD {commission:,}</b></span>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; padding: 4px 0;">
-                            <span>El vendedor recibe</span><span><b>USD {seller_gets:,}</b></span>
-                        </div>
+        with cols[i]:
+            st.html(f"""
+            <div style="background: #f9f9f9; border-radius: 10px; padding: 20px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
+                <div style="font-size: 14px; color: #666; margin-bottom: 4px;">{name}</div>
+                <div style="font-size: 11px; color: #999; margin-bottom: 12px;">{data['desc']}</div>
+                <div style="font-size: 28px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
+                <div style="margin-top: 12px; font-size: 13px; color: #555;">
+                    <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
+                        <span>Precio de venta</span><span><b>USD {price:,}</b></span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
+                        <span>Tu comisión</span><span style="color:{data['color']}"><b>USD {commission:,}</b></span>
+                    </div>
+                    <div style="display:flex; justify-content:space-between; padding: 4px 0;">
+                        <span>El vendedor recibe</span><span><b>USD {seller_gets:,}</b></span>
                     </div>
                 </div>
-                """)
+            </div>
+            """)
 
-        # Show comparables table as HTML with clickable links
-        st.divider()
-        st.write(f"**Publicaciones comparables encontradas ({len(comps)}):**")
-        comp_sorted = comps.sort_values("price_usd").reset_index(drop=True)
-        comp_rows = []
-        for _, c in comp_sorted.iterrows():
-            c_url = c.get("url", "") or ""
-            c_km = f"{int(c['km']):,}" if pd.notna(c.get("km")) else "s/d"
-            c_price = f"{c['price_usd']:,.0f}" if pd.notna(c.get("price_usd")) else "s/d"
-            c_year = int(c["year"]) if pd.notna(c.get("year")) else ""
-            link_html = f'<a href="{c_url}" target="_blank" style="color:#1a6dcc">Ver</a>' if c_url else ""
-            comp_rows.append(f"""<tr>
-                <td>{c.get('brand','')}</td>
-                <td>{c.get('model','')} {c.get('version','')}</td>
-                <td>{c_year}</td>
-                <td>{c_km}</td>
-                <td>USD {c_price}</td>
-                <td>{c.get('location','')}</td>
-                <td>{c.get('source','')}</td>
-                <td>{link_html}</td>
-            </tr>""")
-        comp_html = f"""
-        <table style="width:100%;border-collapse:collapse;font-family:Arial;font-size:13px">
-            <thead><tr style="background:#f5f5f5;border-bottom:2px solid #ddd;font-size:12px;color:#333">
-                <th style="padding:8px;text-align:left">Marca</th>
-                <th style="padding:8px;text-align:left">Modelo</th>
-                <th style="padding:8px;text-align:left">Año</th>
-                <th style="padding:8px;text-align:left">Km</th>
-                <th style="padding:8px;text-align:left">Precio</th>
-                <th style="padding:8px;text-align:left">Ubicación</th>
-                <th style="padding:8px;text-align:left">Fuente</th>
-                <th style="padding:8px;text-align:left">Link</th>
-            </tr></thead>
-            <tbody>{"".join(comp_rows)}</tbody>
-        </table>"""
-        st.html(comp_html)
+    # Show comparables table as HTML with clickable links
+    st.divider()
+    st.write(f"**Publicaciones comparables encontradas ({len(comps)}):**")
+    comp_sorted = comps.sort_values("price_usd").reset_index(drop=True)
+    comp_rows = []
+    for _, c in comp_sorted.iterrows():
+        c_url = c.get("url", "") or ""
+        c_km = f"{int(c['km']):,}" if pd.notna(c.get("km")) else "s/d"
+        c_price = f"{c['price_usd']:,.0f}" if pd.notna(c.get("price_usd")) else "s/d"
+        c_year = int(c["year"]) if pd.notna(c.get("year")) else ""
+        link_html = f'<a href="{c_url}" target="_blank" style="color:#1a6dcc">Ver</a>' if c_url else ""
+        comp_rows.append(f"""<tr>
+            <td>{c.get('brand','')}</td>
+            <td>{c.get('model','')} {c.get('version','')}</td>
+            <td>{c_year}</td>
+            <td>{c_km}</td>
+            <td>USD {c_price}</td>
+            <td>{c.get('location','')}</td>
+            <td>{c.get('source','')}</td>
+            <td>{link_html}</td>
+        </tr>""")
+    comp_html = f"""
+    <table style="width:100%;border-collapse:collapse;font-family:Arial;font-size:13px">
+        <thead><tr style="background:#f5f5f5;border-bottom:2px solid #ddd;font-size:12px;color:#333">
+            <th style="padding:8px;text-align:left">Marca</th>
+            <th style="padding:8px;text-align:left">Modelo</th>
+            <th style="padding:8px;text-align:left">Año</th>
+            <th style="padding:8px;text-align:left">Km</th>
+            <th style="padding:8px;text-align:left">Precio</th>
+            <th style="padding:8px;text-align:left">Ubicación</th>
+            <th style="padding:8px;text-align:left">Fuente</th>
+            <th style="padding:8px;text-align:left">Link</th>
+        </tr></thead>
+        <tbody>{"".join(comp_rows)}</tbody>
+    </table>"""
+    st.html(comp_html)
 
 
 def _render_market_analysis(listings_df, references_df):
