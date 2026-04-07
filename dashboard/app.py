@@ -317,9 +317,11 @@ def _build_price_change_html(source, source_id, price_history_df):
     )
 
 
-def _build_opportunities_table(df, all_data, price_history_df=None):
+def _build_opportunities_table(df, all_data, price_history_df=None, favorites=None):
     if price_history_df is None:
         price_history_df = pd.DataFrame()
+    if favorites is None:
+        favorites = set()
     rows = []
     for _, row in df.iterrows():
         img_url = row.get("image_url", "") or ""
@@ -398,8 +400,17 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
         raw_km = row.get("km", 0) or 0
         raw_aging = int(aging_raw) if aging_raw is not None and not pd.isna(aging_raw) else 9999
 
+        row_source = row.get("source", "")
+        row_source_id = row.get("source_id", "")
+        is_fav = (row_source, row_source_id) in favorites
+        fav_icon = "★" if is_fav else "☆"
+        fav_color = "#f5a623" if is_fav else "#bbb"
+        fav_key = f"{row_source}|{row_source_id}"
+        fav_html = f'<a href="?toggle_fav={fav_key}" style="font-size:18px;color:{fav_color};text-decoration:none;cursor:pointer;" title="{"Quitar de favoritos" if is_fav else "Agregar a favoritos"}">{fav_icon}</a>'
+
         rows.append(f"""
         <tr>
+            <td data-sort="0" style="text-align:center">{fav_html}</td>
             <td data-sort="0">{photo_html}</td>
             <td data-sort="{brand}">{brand}</td>
             <td data-sort="{model} {version}">{model} {version}</td>
@@ -423,6 +434,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
     <table class="opp-table">
         <thead>
             <tr>
+                <th>★</th>
                 <th>Foto</th>
                 <th>Marca</th>
                 <th>Modelo</th>
@@ -702,6 +714,38 @@ def main():
 
     st.title("Detector de Oportunidades de Autos")
 
+    # --- Favorites: load into session state ---
+    if "favorites" not in st.session_state:
+        try:
+            db = get_database()
+            db.init()
+            st.session_state["favorites"] = db.get_favorites()
+            db.close()
+        except Exception:
+            st.session_state["favorites"] = set()
+
+    # --- Handle toggle_fav query param ---
+    qp = st.query_params
+    if "toggle_fav" in qp:
+        fav_key = qp["toggle_fav"]
+        parts = fav_key.split("|", 1)
+        if len(parts) == 2:
+            fsource, fsource_id = parts
+            try:
+                db = get_database()
+                db.init()
+                if (fsource, fsource_id) in st.session_state["favorites"]:
+                    db.remove_favorite(fsource, fsource_id)
+                    st.session_state["favorites"].discard((fsource, fsource_id))
+                else:
+                    db.add_favorite(fsource, fsource_id)
+                    st.session_state["favorites"].add((fsource, fsource_id))
+                db.close()
+            except Exception:
+                pass
+        st.query_params.clear()
+        st.rerun()
+
     listings_df, references_df, merged_df, price_history_df = load_data_v2()
 
     # --- Main tabs ---
@@ -713,7 +757,7 @@ def main():
     with main_tabs[0]:
         if merged_df.empty:
             st.warning("No hay datos. Clickeá 'Actualizar datos'.")
-        _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df)
+        _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df, st.session_state["favorites"])
 
     # ================================================================
     # TAB 2: CALCULADORA DE PRECIO
@@ -738,13 +782,15 @@ def main():
         _render_methodology()
 
 
-def _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df):
+def _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df, favorites=None):
+    if favorites is None:
+        favorites = set()
     if merged_df.empty:
         return
 
     # --- Filters (single row, bordered container) ---
     with st.container(border=True):
-        fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2])
+        fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9, fc10 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2, 1])
 
         with fc1:
             categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
@@ -789,6 +835,9 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
             sorted_locations = [x for x in prev_selected if x in all_locations] + [x for x in all_locations if x not in prev_selected]
             location_filter = st.multiselect("Ubicación", sorted_locations, placeholder="Todas", key="opp_loc")
 
+        with fc10:
+            only_favorites = st.checkbox("★ Favs", key="opp_favs")
+
     # --- Apply Filters ---
     df = merged_df.copy()
 
@@ -810,24 +859,32 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     if location_filter:
         df = df[df["location"].isin(location_filter)]
 
+    if only_favorites:
+        df = df[df.apply(lambda r: (r.get("source"), r.get("source_id")) in favorites, axis=1)]
+
     # --- Opportunities (using net profit) ---
     opportunities = df[df["net_profit_usd"] >= min_profit].sort_values(
         "net_profit_usd", ascending=False
     )
 
     # --- Opportunities Table ---
-    title_col, btn_col = st.columns([6, 1])
-    with title_col:
-        st.markdown(f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">{len(opportunities)} Autos</p>', unsafe_allow_html=True)
-    with btn_col:
-        if st.button("↻  Refrescar Listado", type="secondary", use_container_width=True):
-            _run_scraper()
-            st.cache_data.clear()
-            st.rerun()
+    st.markdown(
+        f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">'
+        f'{len(opportunities)} Autos &nbsp;·&nbsp; '
+        f'<a href="?refresh=1" style="font-size:0.75rem;font-weight:400;color:#666;text-decoration:none;">↻ Refrescar listado</a>'
+        f'</p>',
+        unsafe_allow_html=True
+    )
+
+    if "refresh" in st.query_params:
+        st.query_params.clear()
+        _run_scraper()
+        st.cache_data.clear()
+        st.rerun()
 
     if not opportunities.empty:
         css = _build_css()
-        table_html = _build_opportunities_table(opportunities, merged_df, price_history_df)
+        table_html = _build_opportunities_table(opportunities, merged_df, price_history_df, favorites)
         st.html(css + table_html)
     else:
         st.info("No se encontraron oportunidades con los filtros seleccionados.")

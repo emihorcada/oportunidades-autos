@@ -41,6 +41,12 @@ class SQLiteDatabase:
         self.conn = sqlite3.connect(self.db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript("""
+            CREATE TABLE IF NOT EXISTS favorites (
+                source TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                saved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (source, source_id)
+            );
             CREATE TABLE IF NOT EXISTS listings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 source TEXT NOT NULL,
@@ -153,6 +159,24 @@ class SQLiteDatabase:
     def get_market_references(self):
         cursor = self.conn.execute("SELECT * FROM market_reference")
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_favorites(self):
+        cursor = self.conn.execute("SELECT source, source_id FROM favorites")
+        return {(row["source"], row["source_id"]) for row in cursor.fetchall()}
+
+    def add_favorite(self, source, source_id):
+        self.conn.execute(
+            "INSERT OR IGNORE INTO favorites (source, source_id) VALUES (?, ?)",
+            (source, source_id)
+        )
+        self.conn.commit()
+
+    def remove_favorite(self, source, source_id):
+        self.conn.execute(
+            "DELETE FROM favorites WHERE source = ? AND source_id = ?",
+            (source, source_id)
+        )
+        self.conn.commit()
 
     def close(self):
         if self.conn:
@@ -307,6 +331,18 @@ class SupabaseDatabase:
 
     def get_market_references(self):
         return self._get("market_reference")
+
+    def get_favorites(self):
+        rows = self._get("favorites")
+        return {(r["source"], r["source_id"]) for r in rows}
+
+    def add_favorite(self, source, source_id):
+        self._post("favorites", {"source": source, "source_id": source_id})
+
+    def remove_favorite(self, source, source_id):
+        params = {"source": f"eq.{source}", "source_id": f"eq.{source_id}"}
+        url = f"{self.base}/rest/v1/favorites?" + "&".join(f"{k}={v}" for k, v in params.items())
+        requests.delete(url, headers=self.headers, timeout=30)
 
     def close(self):
         pass  # No persistent connection
