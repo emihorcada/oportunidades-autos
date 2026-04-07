@@ -419,7 +419,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
 
     rows_html = "".join(rows)
     html = f"""
-    <div class="opp-table-wrap" style="height: calc(100vh - 280px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;">
+    <div class="opp-table-wrap" style="height: calc(100vh - 280px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;" id="opp-table-wrap">
     <table class="opp-table">
         <thead>
             <tr>
@@ -683,8 +683,17 @@ def main():
                 countLabel.textContent = tags.length + ' localidades';
             }
         }
-        new MutationObserver(run).observe(doc.body, { childList: true, subtree: true, attributes: true });
+        function fitTableHeight() {
+            var wrap = doc.getElementById('opp-table-wrap');
+            if (!wrap) return;
+            var top = wrap.getBoundingClientRect().top;
+            var available = window.parent.innerHeight - top - 16;
+            if (available > 100) wrap.style.height = available + 'px';
+        }
+        new MutationObserver(function() { run(); fitTableHeight(); }).observe(doc.body, { childList: true, subtree: true, attributes: true });
+        window.parent.addEventListener('resize', fitTableHeight);
         run();
+        fitTableHeight();
     })();
     </script>
     """, height=1)
