@@ -593,7 +593,7 @@ def main():
     <style>
     * { font-family: Arial, Helvetica, sans-serif !important; }
     button[data-baseweb="tab"] { padding: 8px 8px !important; }
-    [data-testid="stButton"] button[kind="secondary"] { background-color: #444 !important; color: #fff !important; border-color: #444 !important; }
+    [data-testid="stButton"] button[kind="secondary"] { background-color: #444 !important; color: #fff !important; border-color: #444 !important; font-size: 11px !important; }
     h1 { font-size: 1.4rem !important; }
     h2 { font-size: 1rem !important; }
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -808,7 +808,7 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     with title_col:
         st.markdown(f'<p style="font-size:1rem;font-weight:700;margin:0.5rem 0">Oportunidades ({len(opportunities)})</p>', unsafe_allow_html=True)
     with btn_col:
-        if st.button("Refrescar Listado", type="secondary", use_container_width=True):
+        if st.button("↻  Refrescar Listado", type="secondary", use_container_width=True):
             _run_scraper()
             st.cache_data.clear()
             st.rerun()
