@@ -419,7 +419,7 @@ def _build_opportunities_table(df, all_data, price_history_df=None):
 
     rows_html = "".join(rows)
     html = f"""
-    <div class="opp-table-wrap" style="height: calc(100vh - 180px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;" id="opp-table-wrap">
+    <div class="opp-table-wrap" style="height: calc(100vh - 220px); overflow-y: auto; border-radius: 6px; border: 1px solid #ddd;" id="opp-table-wrap">
     <table class="opp-table">
         <thead>
             <tr>
@@ -601,7 +601,9 @@ def main():
     button[data-baseweb="tab"]:hover { background-color: #f0f0f0 !important; border-radius: 4px; }
     [data-testid="stSlider"] > div > div > div > div { background-color: #333 !important; }
     div[data-baseweb="select"] > div { border-color: #333 !important; }
-    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
+    .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; padding-bottom: 0 !important; }
+    .main { overflow: hidden !important; }
+    section[data-testid="stMain"] { overflow: hidden !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
     [data-testid="stVerticalBlockBorderWrapper"] {
         position: sticky;
