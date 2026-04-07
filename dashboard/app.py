@@ -600,21 +600,18 @@ def main():
     div[data-baseweb="select"] > div { border-color: #333 !important; }
     .block-container { max-width: 100% !important; padding-left: 2rem !important; padding-right: 2rem !important; padding-top: 2.5rem !important; }
     [data-testid="stMultiSelect"] ul[role="listbox"] { min-width: 320px !important; }
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) {
+    [data-testid="stVerticalBlockBorderWrapper"] {
         position: sticky;
         top: 0;
         z-index: 100;
         background: #ffffff;
-        border: 1px solid #ddd;
-        border-radius: 10px;
-        padding: 10px 14px !important;
         margin-bottom: 12px;
     }
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) label { font-size: 11px !important; }
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) input,
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-baseweb="select"] span { font-size: 12px !important; }
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
-    [data-testid="stHorizontalBlock"]:has(> [data-testid="column"]:nth-child(9)) [data-testid="stMultiSelect"] input { font-size: 11px !important; }
+    [data-testid="stVerticalBlockBorderWrapper"] label { font-size: 11px !important; }
+    [data-testid="stVerticalBlockBorderWrapper"] input,
+    [data-testid="stVerticalBlockBorderWrapper"] [data-baseweb="select"] span { font-size: 12px !important; }
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMultiSelect"] [data-baseweb="tag"] span,
+    [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMultiSelect"] input { font-size: 11px !important; }
     </style>
     """, unsafe_allow_html=True)
     components.html("""
@@ -739,52 +736,52 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     if merged_df.empty:
         return
 
-    # --- Filters (single row) ---
-    st.markdown('<div class="filters-start-marker"></div>', unsafe_allow_html=True)
-    fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2])
+    # --- Filters (single row, bordered container) ---
+    with st.container(border=True):
+        fc1, fc2, fc3, fc4, fc5, fc6, fc7, fc8, fc9 = st.columns([1.5, 1.5, 1.5, 1.5, 2, 2, 2, 2, 2])
 
-    with fc1:
-        categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
-        selected_cat = st.selectbox("Categoría", categories, key="opp_cat")
+        with fc1:
+            categories = ["Todas"] + sorted(merged_df["category"].dropna().unique().tolist())
+            selected_cat = st.selectbox("Categoría", categories, key="opp_cat")
 
-    with fc2:
-        brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
-        selected_brand = st.selectbox("Marca", brands, key="opp_brand")
+        with fc2:
+            brands = ["Todas"] + sorted(merged_df["brand"].dropna().unique().tolist())
+            selected_brand = st.selectbox("Marca", brands, key="opp_brand")
 
-    with fc3:
-        if selected_brand != "Todas":
-            models = ["Todos"] + sorted(
-                merged_df[merged_df["brand"] == selected_brand]["model"].dropna().str.strip().unique().tolist()
-            )
-        else:
-            models = ["Todos"] + sorted(merged_df["model"].dropna().str.strip().unique().tolist())
-        selected_model = st.selectbox("Modelo", models, key="opp_model")
+        with fc3:
+            if selected_brand != "Todas":
+                models = ["Todos"] + sorted(
+                    merged_df[merged_df["brand"] == selected_brand]["model"].dropna().str.strip().unique().tolist()
+                )
+            else:
+                models = ["Todos"] + sorted(merged_df["model"].dropna().str.strip().unique().tolist())
+            selected_model = st.selectbox("Modelo", models, key="opp_model")
 
-    with fc4:
-        sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
-        selected_source = st.selectbox("Fuente", sources, key="opp_source")
+        with fc4:
+            sources = ["Todas"] + sorted(merged_df["source"].dropna().unique().tolist())
+            selected_source = st.selectbox("Fuente", sources, key="opp_source")
 
-    with fc5:
-        year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
-        year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
-        year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
+        with fc5:
+            year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
+            year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
+            year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
 
-    with fc6:
-        km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
-        km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
+        with fc6:
+            km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
+            km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
 
-    with fc7:
-        price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
-        price_range = st.slider("Precio", 0, price_max_val, (0, price_max_val), key="opp_price", format="USD %d")
+        with fc7:
+            price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
+            price_range = st.slider("Precio", 0, price_max_val, (0, price_max_val), key="opp_price", format="USD %d")
 
-    with fc8:
-        min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d")
+        with fc8:
+            min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d")
 
-    with fc9:
-        all_locations = sorted(merged_df["location"].dropna().unique().tolist())
-        prev_selected = st.session_state.get("opp_loc", [])
-        sorted_locations = [x for x in prev_selected if x in all_locations] + [x for x in all_locations if x not in prev_selected]
-        location_filter = st.multiselect("Ubicación", sorted_locations, placeholder="Todas", key="opp_loc")
+        with fc9:
+            all_locations = sorted(merged_df["location"].dropna().unique().tolist())
+            prev_selected = st.session_state.get("opp_loc", [])
+            sorted_locations = [x for x in prev_selected if x in all_locations] + [x for x in all_locations if x not in prev_selected]
+            location_filter = st.multiselect("Ubicación", sorted_locations, placeholder="Todas", key="opp_loc")
 
     # --- Apply Filters ---
     df = merged_df.copy()
