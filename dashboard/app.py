@@ -1037,67 +1037,74 @@ def _live_scrape(brand: str, model_token: str, year: int):
 
 
 def _render_reference_chart(prices, recommended, brand, model, year, km):
-    """SVG histogram of comparable prices with the recommended price highlighted."""
+    """Histogram of comparable prices with the recommended price highlighted.
+
+    Uses altair (bundled with Streamlit) instead of inline SVG — Streamlit's
+    html sandbox was collapsing SVG to zero height.
+    """
+    import altair as alt
     import numpy as np
+
     n_bins = max(3, min(12, len(prices) // 2 + 1))
     counts, edges = np.histogram(prices, bins=n_bins)
-    max_count = max(counts) or 1
     hi_idx = int(np.clip(np.searchsorted(edges, recommended) - 1, 0, len(counts) - 1))
+    hi_low = float(edges[hi_idx])
+    hi_high = float(edges[hi_idx + 1])
 
-    chart_w = 520
-    chart_h = 160
-    label_h = 44
-    svg_h = chart_h + label_h + 12
-    gap = 4
-    bar_slot = chart_w / len(counts)
-    bar_w = bar_slot - gap
+    bins_df = pd.DataFrame({
+        "bin_start": edges[:-1],
+        "bin_end": edges[1:],
+        "count": counts,
+    })
+    bins_df["bin_mid"] = (bins_df["bin_start"] + bins_df["bin_end"]) / 2
+    bins_df["highlight"] = (bins_df["bin_start"] >= hi_low - 0.01) & (bins_df["bin_start"] <= hi_low + 0.01)
 
-    bars = []
-    for i, c in enumerate(counts):
-        h = (c / max_count) * chart_h
-        # Minimum visible height for non-zero bars so a count of 1 doesn't
-        # disappear next to a count of 12.
-        if c > 0:
-            h = max(h, 6)
-        x = i * bar_slot + gap / 2
-        y = label_h + (chart_h - h)
-        color = "#2563eb" if i == hi_idx else "#d4d4d4"
-        bars.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="{color}" rx="3"/>')
+    bars = (
+        alt.Chart(bins_df)
+        .mark_bar(cornerRadius=3)
+        .encode(
+            x=alt.X(
+                "bin_start:Q",
+                bin="binned",
+                axis=alt.Axis(format="$,.0f", labelColor="#6b7280", title=None, grid=False, tickCount=4),
+            ),
+            x2="bin_end:Q",
+            y=alt.Y("count:Q", axis=None),
+            color=alt.condition("datum.highlight", alt.value("#2563eb"), alt.value("#d4d4d4")),
+        )
+        .properties(height=180)
+    )
 
-    hi_h = max((counts[hi_idx] / max_count) * chart_h, 6) if counts[hi_idx] > 0 else 6
-    hi_top_y = label_h + (chart_h - hi_h)
-    label_cx = hi_idx * bar_slot + bar_slot / 2
+    label_df = pd.DataFrame({"label_x": [(hi_low + hi_high) / 2], "label_y": [int(counts[hi_idx])], "text": [f"USD {recommended:,.0f}"]})
+    label = (
+        alt.Chart(label_df)
+        .mark_text(
+            align="center",
+            baseline="bottom",
+            dy=-10,
+            fontSize=13,
+            fontWeight="bold",
+            color="#2563eb",
+        )
+        .encode(x="label_x:Q", y="label_y:Q", text="text:N")
+    )
 
-    pill_text = f"USD {recommended:,.0f}"
-    pill_w = max(92, 8 * len(pill_text) + 22)
-    pill_x = max(2, min(chart_w - pill_w - 2, label_cx - pill_w / 2))
-    pill_y = max(4, hi_top_y - 34)
-
-    label_svg = f"""
-        <line x1="{label_cx:.1f}" y1="{pill_y + 26:.1f}" x2="{label_cx:.1f}" y2="{hi_top_y:.1f}" stroke="#2563eb" stroke-width="1.5"/>
-        <rect x="{pill_x:.1f}" y="{pill_y:.1f}" width="{pill_w}" height="26" rx="13" fill="#2563eb"/>
-        <text x="{pill_x + pill_w/2:.1f}" y="{pill_y + 17:.1f}" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="white">{pill_text}</text>
-    """
+    chart = (bars + label).configure_view(stroke=None).configure_axis(domainColor="#e5e7eb", tickColor="#e5e7eb")
 
     km_str = f"{km:,} km".replace(",", ".") if km is not None else ""
-    title = f"{brand} | {model} | {year}"
-
-    return f"""
-    <div style="background:white;padding:24px 28px;border:1px solid #e5e7eb;border-radius:12px;font-family:Arial,sans-serif;max-width:600px;margin:24px 0;">
+    st.html(f"""
+    <div style="font-family:Arial,sans-serif;margin-top:24px;">
       <div style="font-size:20px;font-weight:600;color:#111827;margin-bottom:4px;">Precios de referencia</div>
-      <div style="font-size:13px;color:#6b7280;margin-bottom:20px;">Distribución de precios entre publicaciones similares en Mercado Libre.</div>
-      <svg xmlns="http://www.w3.org/2000/svg" width="{chart_w}" height="{svg_h}" viewBox="0 0 {chart_w} {svg_h}" style="display:block;max-width:100%;height:auto;">
-        {''.join(bars)}
-        {label_svg}
-      </svg>
-      <div style="display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:6px;border-top:1px solid #e5e7eb;padding-top:8px;">
-        <span>USD {edges[0]:,.0f}</span>
-        <span>USD {edges[-1]:,.0f}</span>
-      </div>
-      <div style="font-size:24px;font-weight:600;color:#111827;margin-top:20px;">{km_str}</div>
-      <div style="font-size:13px;color:#6b7280;margin-top:2px;">{title}</div>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">Distribución de precios entre publicaciones similares en Mercado Libre.</div>
     </div>
-    """
+    """)
+    st.altair_chart(chart, use_container_width=True)
+    st.html(f"""
+    <div style="font-family:Arial,sans-serif;">
+      <div style="font-size:22px;font-weight:600;color:#111827;margin-top:8px;">{km_str}</div>
+      <div style="font-size:13px;color:#6b7280;margin-top:2px;">{brand} | {model} | {year}</div>
+    </div>
+    """)
 
 
 def _render_price_calculator(merged_df):
@@ -1349,7 +1356,7 @@ def _render_price_calculator(merged_df):
     # --- Histograma "Precios de referencia" ---
     if len(filtered_prices) >= 3:
         avg_km = int(comps["km"].dropna().mean()) if comps["km"].dropna().any() else None
-        st.html(_render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km))
+        _render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km)
 
     # Show comparables table as HTML with clickable links — sorted by km proximity
     st.divider()
