@@ -29,6 +29,74 @@ _FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 # Items per page on ML website (fixed at 48 for grid view).
 _PAGE_SIZE = 48
 
+# Multi-word model names that should NOT be split during title parsing.
+# Key = brand (canonical first-word casing), value = list of multi-word models
+# ordered longest-first for greedy matching.  Anything not here parses to a
+# single-word model with the rest as version (so 'Hilux Sw4 4x2 Diesel'
+# becomes model='Hilux' / version='Sw4 4x2 Diesel' — matches the user's
+# desired aggregation).
+_MULTI_WORD_MODELS = {
+    "Toyota": ["Corolla Cross", "Land Cruiser"],
+    "Renault": ["Sandero Stepway", "Grand Tour", "Megane Sedan"],
+    "Chevrolet": ["Corsa Classic", "Onix Plus", "Grand Blazer"],
+    "Fiat": ["Strada Adventure", "Palio Adventure", "Grand Siena"],
+    "Citroën": ["C3 Aircross", "C4 Cactus", "C4 Lounge", "C4 Spacetourer"],
+    "Hyundai": ["Santa Fe", "Grand I10"],
+    "Mitsubishi": ["Pajero Sport", "Outlander Sport", "Eclipse Cross"],
+    "Jeep": ["Grand Cherokee"],
+    "Land": ["Rover Discovery", "Rover Defender", "Rover Range"],  # 'Land Rover X' titles
+    "Alfa": ["Romeo Stelvio", "Romeo Giulia", "Romeo Giulietta"],   # 'Alfa Romeo X'
+    "Mercedes-benz": [],
+    "Volkswagen": ["Cross Up", "Tiguan Allspace"],
+}
+
+# Tokens that are NOT models — body styles, engine specs, trim shorthand.
+# If the first token after the brand matches one of these, we drop it and use
+# the next word as model.
+_NON_MODEL_TOKENS = {
+    "4x4", "4x2", "diesel", "nafta", "manual", "automatico", "automatic",
+    "auto", "at", "mt", "gnc", "glp", "hibrido", "híbrido", "ev",
+    "cabina", "doble", "pickup", "pick-up", "suv", "sedan", "hatchback",
+}
+
+
+def _split_title(title: str):
+    """Parse an ML listing title into (brand, model, version).
+
+    Brand = first token.  Model = first significant token after brand
+    (skipping junk like '4x4', 'Diesel'), unless the brand has a multi-word
+    model entry whose prefix matches.  Everything else becomes version.
+    """
+    parts = title.split()
+    if not parts:
+        return "", "", ""
+    brand = parts[0]
+    rest = parts[1:]
+    if not rest:
+        return brand, "", ""
+
+    multi = _MULTI_WORD_MODELS.get(brand, [])
+    rest_lower = " ".join(rest).lower()
+    for candidate in multi:
+        cand_l = candidate.lower()
+        if rest_lower.startswith(cand_l + " ") or rest_lower == cand_l:
+            consumed = len(candidate.split())
+            version = " ".join(rest[consumed:])
+            return brand, candidate, version
+
+    # Skip leading non-model tokens (4x4, Diesel, etc.) — usually the seller
+    # omitted the model in the title and went straight to specs.
+    idx = 0
+    while idx < len(rest) and rest[idx].lower() in _NON_MODEL_TOKENS:
+        idx += 1
+    if idx >= len(rest):
+        # Nothing usable — leave model empty so it can be filtered later.
+        return brand, "", " ".join(rest)
+
+    model = rest[idx]
+    version = " ".join(rest[idx + 1:])
+    return brand, model, version
+
 
 def _get_firecrawl_key() -> str:
     key = os.environ.get("FIRECRAWL_API_KEY")
@@ -213,11 +281,7 @@ class MercadoLibreScraper:
             if pic_id:
                 image_url = f"https://http2.mlstatic.com/D_{pic_id}-O.jpg"
 
-        # Try to extract brand from title (first word is typically the brand)
-        title_parts = title_text.split()
-        brand = title_parts[0] if title_parts else ""
-        model = " ".join(title_parts[1:3]) if len(title_parts) > 1 else ""
-        version = " ".join(title_parts[3:]) if len(title_parts) > 3 else ""
+        brand, model, version = _split_title(title_text)
 
         return {
             "source": "mercadolibre",
