@@ -293,6 +293,70 @@ class MercadoLibreScraper:
 
         return results, total
 
+    def _scrape_url(self, url: str):
+        """Scrape a single ML search URL and return parsed listings + total."""
+        resp = requests.post(
+            _FIRECRAWL_URL,
+            headers={
+                "Authorization": f"Bearer {self._fc_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "url": url,
+                "formats": ["rawHtml"],
+                "proxy": "stealth",
+                "onlyMainContent": False,
+            },
+            timeout=120,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Firecrawl HTTP {resp.status_code}: {resp.text[:300]}")
+        payload = resp.json()
+        if not payload.get("success"):
+            raise RuntimeError(f"Firecrawl scrape failed: {payload}")
+        html = payload.get("data", {}).get("rawHtml", "")
+        cards, total = self._extract_polycards(html)
+        results = []
+        seen = set()
+        for c in cards:
+            p = self._parse_polycard(c)
+            if p and p["source_id"] not in seen:
+                seen.add(p["source_id"])
+                results.append(p)
+        return results, total
+
+    def scrape_brand_model_year(self, brand: str, model_token: str, year: int, max_pages: int = 3):
+        """Scrape ML for a specific brand/model/year — used by the price
+        calculator for on-demand comparable data.
+
+        Returns up to `max_pages * 48` deduplicated listings.
+        """
+        brand_slug = brand.strip().lower().replace(" ", "-")
+        model_slug = model_token.strip().lower().replace(" ", "-")
+        base = (
+            f"https://autos.mercadolibre.com.ar/{brand_slug}/{model_slug}/"
+            f"desde-{year}-hasta-{year}/_NoIndex_True"
+        )
+        all_listings = []
+        seen = set()
+        for page in range(max_pages):
+            offset = page * _PAGE_SIZE
+            url = base if offset == 0 else base.replace(
+                "_NoIndex_True", f"_Desde_{offset + 1}_NoIndex_True"
+            )
+            try:
+                results, total = self._scrape_url(url)
+            except Exception as e:
+                logger.error(f"on-demand scrape page {page} failed: {e}")
+                break
+            new = [r for r in results if r["source_id"] not in seen]
+            for r in new:
+                seen.add(r["source_id"])
+            all_listings.extend(new)
+            if not new or offset + _PAGE_SIZE >= min(total, max_pages * _PAGE_SIZE):
+                break
+        return all_listings
+
     def scrape_all(self):
         logger.info("Starting MercadoLibre scrape (via Firecrawl)...")
         all_listings = []

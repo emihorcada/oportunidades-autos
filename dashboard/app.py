@@ -239,7 +239,6 @@ def _build_median_tooltip(row, all_data):
     lines = [f'<div class="comp-header">Este auto: USD {_fmt(price)}</div>']
     lines.append(f'<div class="comp-header">Referencia: USD {_fmt(median)}</div>')
     lines.append(f'<div style="color:#666;font-size:11px;margin-bottom:4px">Comparado por: {level_label}</div>')
-    lines.append(f'<div style="color:#666;font-size:11px;margin-bottom:4px">Se descartó el 20% más caro</div>')
     lines.append('<div style="margin-top:4px; font-weight:600; color:#1a8a4a">Otros similares publicados:</div>')
 
     if comps.empty:
@@ -1024,6 +1023,19 @@ def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=No
     return html
 
 
+@st.cache_data(ttl=86400, show_spinner=False)
+def _live_scrape(brand: str, model_token: str, year: int):
+    """Targeted ML scrape for a specific brand+model+year, cached for 24h.
+
+    Used by the price calculator when DB comps are sparse.  Returns a list
+    of listing dicts (same shape as the main scraper output).
+    """
+    from scrapers.mercadolibre import MercadoLibreScraper
+    usd_rate = get_usd_blue_rate()
+    ml = MercadoLibreScraper(usd_rate)
+    return ml.scrape_brand_model_year(brand, model_token, year, max_pages=3)
+
+
 def _render_reference_chart(prices, recommended, brand, model, year, km):
     """SVG histogram of comparable prices with the recommended price highlighted."""
     import numpy as np
@@ -1162,17 +1174,37 @@ def _render_price_calculator(merged_df):
     # first token.  E.g. "Corolla 1.8" → also matches "Corolla Cross",
     # "Corolla 2.0", etc.  Same for "Hilux 4x2" → all Hilux variants.
     broadened_model = False
-    if len(all_model) < 3:
-        model_root = (calc_model or "").split()[0]
-        if model_root:
-            family = merged_df[
-                (merged_df["brand"] == calc_brand) &
-                (merged_df["model"].fillna("").str.lower().str.startswith(model_root.lower())) &
-                (merged_df["price_usd"].notna())
-            ].copy()
-            if len(family) > len(all_model):
-                all_model = family
-                broadened_model = True
+    model_root = (calc_model or "").split()[0]
+    if len(all_model) < 3 and model_root:
+        family = merged_df[
+            (merged_df["brand"] == calc_brand) &
+            (merged_df["model"].fillna("").str.lower().str.startswith(model_root.lower())) &
+            (merged_df["price_usd"].notna())
+        ].copy()
+        if len(family) > len(all_model):
+            all_model = family
+            broadened_model = True
+
+    # Step 1.7: Live ML scrape via Firecrawl if same-year comps in DB are sparse
+    # (the daily scrape caps at 1000 listings across all autos, so specific
+    # brand+model+year combos can have very few matches).
+    same_year_count = int((all_model["year"] == calc_year).sum()) if not all_model.empty else 0
+    live_added = 0
+    if same_year_count < 15 and model_root:
+        with st.spinner(f"Buscando datos frescos en MercadoLibre para {calc_brand} {model_root} {calc_year}..."):
+            try:
+                live = _live_scrape(calc_brand, model_root, int(calc_year))
+            except Exception as e:
+                live = []
+                st.caption(f"(no se pudo traer data fresca de ML: {e})")
+            if live:
+                live_df = pd.DataFrame(live)
+                merged = pd.concat([all_model, live_df], ignore_index=True)
+                before = len(all_model)
+                all_model = merged.drop_duplicates(subset=["source", "source_id"], keep="first").copy()
+                live_added = len(all_model) - before
+        if live_added > 0:
+            st.success(f"Encontradas {live_added} publicaciones adicionales en MercadoLibre.")
 
     if len(all_model) == 0:
         st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base de datos.")
@@ -1193,17 +1225,18 @@ def _render_price_calculator(merged_df):
         if len(version_comps) >= 3:
             comps = version_comps
 
-    # Step 4: Filter by km range (user-defined)
-    km_comps = comps[
+    # Step 4: Filter by km range (user-defined) — strictly respected
+    comps = comps[
         (comps["km"].notna()) &
         (comps["km"] >= calc_km_min) &
         (comps["km"] <= calc_km_max)
     ]
-    if len(km_comps) >= 2:
-        comps = km_comps
 
     if len(comps) == 0:
-        st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base.")
+        st.warning(
+            f"No hay publicaciones de {calc_brand} {calc_model} dentro del rango "
+            f"de km ({calc_km_min:,} a {calc_km_max:,}). Ampliá el rango."
+        )
         return
 
     # Build filter description
@@ -1222,15 +1255,7 @@ def _render_price_calculator(merged_df):
         st.info(f"Se amplió la búsqueda a toda la familia: {family_models}")
 
     prices = sorted(comps["price_usd"].tolist())
-
-    # Remove top 20% only when we have enough data — with few comps, every
-    # point matters and trimming would distort the result.
-    import math
-    if len(prices) >= 5:
-        cut = max(1, math.ceil(len(prices) * 0.20))
-        filtered_prices = prices[:-cut]
-    else:
-        filtered_prices = prices
+    filtered_prices = prices
 
     p25 = float(np.percentile(filtered_prices, 25))
     p50 = float(np.median(filtered_prices))
@@ -1245,7 +1270,7 @@ def _render_price_calculator(merged_df):
     st.divider()
     st.subheader("Resultado")
     st.write(f"**{calc_brand} {calc_model} {calc_year}** — entre {calc_km_min:,} y {calc_km_max:,} km")
-    st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used}, se descartó el 20% más caro)")
+    st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used})")
 
     # Cards for each scenario
     cols = st.columns(3)
@@ -1345,19 +1370,15 @@ def _render_methodology():
         <li><b>Modelo solo</b> — Último recurso: mismo modelo y año, cualquier kilometraje.</li>
     </ol>
 
-    <h4>3. Filtro de precios inflados</h4>
-    <p>Dentro del grupo de comparación, se <b>descarta el 20% más caro</b> antes de calcular la referencia.
-    Esto elimina publicaciones con precios inflados que nunca se concretan.</p>
-
-    <h4>4. Precio de referencia (Mediana)</h4>
+    <h4>3. Precio de referencia (Mediana)</h4>
     <p>Se calcula la <b>mediana</b> del grupo filtrado. La mediana es más robusta que el promedio:
     no se distorsiona con valores extremos.</p>
 
-    <h4>5. Precio sugerido de venta ("Venderlo a")</h4>
+    <h4>4. Precio sugerido de venta ("Venderlo a")</h4>
     <p>Se calcula como el <b>95% de la mediana</b>: un precio competitivo que permite venta rápida
     sin regalar ganancia. Ejemplo: si la mediana es USD 20.000, el precio sugerido es USD 19.000.</p>
 
-    <h4>6. Costo de viaje</h4>
+    <h4>5. Costo de viaje</h4>
     <p>Para autos en <b>CABA o provincia de Buenos Aires</b>, el costo de viaje es $0 (local).</p>
     <p>Para autos en otras provincias se estima:</p>
     <ul>
@@ -1366,18 +1387,18 @@ def _render_methodology():
         <li><b>Nafta de vuelta</b>: distancia × 10L/100km × USD 1/litro</li>
     </ul>
 
-    <h4>7. Ganancia neta</h4>
+    <h4>6. Ganancia neta</h4>
     <p><b>Ganancia neta = Mediana − Precio publicado − Costo de viaje</b></p>
     <p>Un auto es <b>oportunidad</b> si la ganancia neta es ≥ USD 1.000.</p>
 
-    <h4>8. Categorías</h4>
+    <h4>7. Categorías</h4>
     <ul>
         <li><b>Alta gama</b>: mediana del grupo > USD 30.000</li>
         <li><b>Media</b>: mediana entre USD 10.000 y USD 30.000</li>
         <li><b>Baja</b>: mediana < USD 10.000</li>
     </ul>
 
-    <h4>9. Conversión de moneda</h4>
+    <h4>8. Conversión de moneda</h4>
     <p>Precios en ARS se convierten a USD usando el <b>dólar blue</b> (venta) de
     <a href="https://dolarapi.com" target="_blank" style="color:#1a6dcc">dolarapi.com</a>,
     consultado al momento del scraping.</p>
