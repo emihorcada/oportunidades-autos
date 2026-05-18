@@ -1039,54 +1039,54 @@ def _live_scrape(brand: str, model_token: str, year: int):
 def _render_reference_chart(prices, recommended, brand, model, year, km):
     """SVG histogram of comparable prices with the recommended price highlighted."""
     import numpy as np
-    # Adapt bins to sample size — 12 bins for ≥10 points, fewer for sparse data
-    # so we don't end up with mostly-empty bars.
     n_bins = max(3, min(12, len(prices) // 2 + 1))
     counts, edges = np.histogram(prices, bins=n_bins)
     max_count = max(counts) or 1
-
-    # Bin containing the recommended price (clamped)
     hi_idx = int(np.clip(np.searchsorted(edges, recommended) - 1, 0, len(counts) - 1))
 
-    chart_w = 380
-    chart_h = 130
-    label_h = 40
-    svg_h = chart_h + label_h + 8
-    gap = 3
+    chart_w = 520
+    chart_h = 160
+    label_h = 44
+    svg_h = chart_h + label_h + 12
+    gap = 4
     bar_slot = chart_w / len(counts)
     bar_w = bar_slot - gap
 
     bars = []
     for i, c in enumerate(counts):
         h = (c / max_count) * chart_h
+        # Minimum visible height for non-zero bars so a count of 1 doesn't
+        # disappear next to a count of 12.
+        if c > 0:
+            h = max(h, 6)
         x = i * bar_slot + gap / 2
         y = label_h + (chart_h - h)
         color = "#2563eb" if i == hi_idx else "#d4d4d4"
         bars.append(f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{h:.1f}" fill="{color}" rx="3"/>')
 
-    hi_top_y = label_h + (chart_h - (counts[hi_idx] / max_count) * chart_h)
+    hi_h = max((counts[hi_idx] / max_count) * chart_h, 6) if counts[hi_idx] > 0 else 6
+    hi_top_y = label_h + (chart_h - hi_h)
     label_cx = hi_idx * bar_slot + bar_slot / 2
 
-    # Label pill on top of highlighted bar
     pill_text = f"USD {recommended:,.0f}"
-    pill_w = max(78, 8 * len(pill_text) + 18)
-    pill_x = max(0, min(chart_w - pill_w, label_cx - pill_w / 2))
-    pill_y = max(2, hi_top_y - 30)
+    pill_w = max(92, 8 * len(pill_text) + 22)
+    pill_x = max(2, min(chart_w - pill_w - 2, label_cx - pill_w / 2))
+    pill_y = max(4, hi_top_y - 34)
 
     label_svg = f"""
-        <line x1="{label_cx:.1f}" y1="{pill_y + 22:.1f}" x2="{label_cx:.1f}" y2="{hi_top_y:.1f}" stroke="#2563eb" stroke-width="1.5"/>
-        <rect x="{pill_x:.1f}" y="{pill_y:.1f}" width="{pill_w}" height="22" rx="11" fill="#2563eb"/>
-        <text x="{pill_x + pill_w/2:.1f}" y="{pill_y + 15:.1f}" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="600" fill="white">{pill_text}</text>
+        <line x1="{label_cx:.1f}" y1="{pill_y + 26:.1f}" x2="{label_cx:.1f}" y2="{hi_top_y:.1f}" stroke="#2563eb" stroke-width="1.5"/>
+        <rect x="{pill_x:.1f}" y="{pill_y:.1f}" width="{pill_w}" height="26" rx="13" fill="#2563eb"/>
+        <text x="{pill_x + pill_w/2:.1f}" y="{pill_y + 17:.1f}" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="600" fill="white">{pill_text}</text>
     """
 
     km_str = f"{km:,} km".replace(",", ".") if km is not None else ""
     title = f"{brand} | {model} | {year}"
 
     return f"""
-    <div style="background:white;padding:24px 28px;border:1px solid #e5e7eb;border-radius:12px;font-family:Arial,sans-serif;max-width:460px;margin-top:24px;">
+    <div style="background:white;padding:24px 28px;border:1px solid #e5e7eb;border-radius:12px;font-family:Arial,sans-serif;max-width:600px;margin:24px 0;">
       <div style="font-size:20px;font-weight:600;color:#111827;margin-bottom:4px;">Precios de referencia</div>
-      <div style="font-size:13px;color:#6b7280;margin-bottom:20px;">Según los vendedores en Mercado Libre.</div>
-      <svg width="100%" viewBox="0 0 {chart_w} {svg_h}" preserveAspectRatio="xMidYMid meet">
+      <div style="font-size:13px;color:#6b7280;margin-bottom:20px;">Distribución de precios entre publicaciones similares en Mercado Libre.</div>
+      <svg xmlns="http://www.w3.org/2000/svg" width="{chart_w}" height="{svg_h}" viewBox="0 0 {chart_w} {svg_h}" style="display:block;max-width:100%;height:auto;">
         {''.join(bars)}
         {label_svg}
       </svg>
