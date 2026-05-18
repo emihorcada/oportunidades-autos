@@ -5,9 +5,6 @@ from core.analyzer import analyze_listings, find_opportunities, categorize
 from core.aging import fetch_aging_days
 from db.database import get_database
 from scrapers.mercadolibre import MercadoLibreScraper
-from scrapers.autocosmos import AutocosmosScraper
-from scrapers.demotores import DeMotoresScraper
-from scrapers.olx import OLXScraper
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,9 +30,6 @@ def main():
     all_listings = []
     scrapers = [
         ("MercadoLibre", MercadoLibreScraper(usd_rate)),
-        ("Autocosmos", AutocosmosScraper(usd_rate)),
-        ("DeMotores", DeMotoresScraper(usd_rate)),
-        ("OLX", OLXScraper(usd_rate)),
     ]
 
     for name, scraper in scrapers:

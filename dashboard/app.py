@@ -503,7 +503,6 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
 def _run_scraper():
     """Run the full scraper pipeline from the dashboard."""
     from scrapers.mercadolibre import MercadoLibreScraper
-    from scrapers.autocosmos import AutocosmosScraper
     import time
 
     db = get_database()
@@ -529,17 +528,7 @@ def _run_scraper():
     except Exception as e:
         st.warning(f"MercadoLibre falló: {e}")
 
-    progress.progress(45, text=f"ML: {len(all_listings)} listings. Scrapeando Autocosmos...")
-
-    # Scrape Autocosmos
-    try:
-        ac = AutocosmosScraper(usd_rate)
-        ac_listings = ac.scrape_all()
-        all_listings.extend(ac_listings)
-    except Exception as e:
-        st.warning(f"Autocosmos falló: {e}")
-
-    progress.progress(70, text=f"Total: {len(all_listings)} listings. Filtrando...")
+    progress.progress(70, text=f"ML: {len(all_listings)} listings. Filtrando...")
 
     # Filter spam
     all_listings = [l for l in all_listings if l.get("price_usd") and l["price_usd"] >= 2000]
