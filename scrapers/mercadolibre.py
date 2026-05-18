@@ -13,7 +13,10 @@ from core.exchange_rate import convert_ars_to_usd
 logger = logging.getLogger(__name__)
 
 ML_CATEGORY = "MLA1743"
-ML_BASE_URL = "https://autos.mercadolibre.com.ar/autos/desde-2016/_OrderId_PRICE_NoIndex_True"
+# Default ML sort = relevance/recent.  We removed `_OrderId_PRICE` (ascending
+# price) because that sort biased the 1000-listing cap toward the cheapest
+# spam/plan-de-ahorro listings, leaving brands like Toyota/Hilux unrepresented.
+ML_BASE_URL = "https://autos.mercadolibre.com.ar/autos/desde-2016/_NoIndex_True"
 
 # ML now serves an empty shell page (or redirects to account-verification)
 # for unauthenticated requests/sessions originating from servers.  Plain
@@ -261,8 +264,8 @@ class MercadoLibreScraper:
         """
         base = ML_BASE_URL
         if offset > 0:
-            # Insert _Desde_N before _OrderId
-            base = base.replace("_OrderId", f"_Desde_{offset + 1}_OrderId")
+            # Insert _Desde_N before _NoIndex_True
+            base = base.replace("_NoIndex_True", f"_Desde_{offset + 1}_NoIndex_True")
         return base
 
     def fetch_page(self, offset=0):
