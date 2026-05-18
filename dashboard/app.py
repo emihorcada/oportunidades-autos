@@ -1147,12 +1147,29 @@ def _render_price_calculator(merged_df):
     calc_km_max = p["km_max"]
 
     # --- Progressive filtering ---
-    # Step 1: All listings of this brand + model
+    # Step 1: Try exact model match first
     all_model = merged_df[
         (merged_df["brand"] == calc_brand) &
         (merged_df["model"] == calc_model) &
         (merged_df["price_usd"].notna())
     ].copy()
+
+    # Step 1.5: If the exact model has too few comps, fall back to the model
+    # "family" — anything in the same brand whose model starts with the same
+    # first token.  E.g. "Corolla 1.8" → also matches "Corolla Cross",
+    # "Corolla 2.0", etc.  Same for "Hilux 4x2" → all Hilux variants.
+    broadened_model = False
+    if len(all_model) < 3:
+        model_root = (calc_model or "").split()[0]
+        if model_root:
+            family = merged_df[
+                (merged_df["brand"] == calc_brand) &
+                (merged_df["model"].fillna("").str.lower().str.startswith(model_root.lower())) &
+                (merged_df["price_usd"].notna())
+            ].copy()
+            if len(family) > len(all_model):
+                all_model = family
+                broadened_model = True
 
     if len(all_model) == 0:
         st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base de datos.")
@@ -1182,21 +1199,35 @@ def _render_price_calculator(merged_df):
     if len(km_comps) >= 2:
         comps = km_comps
 
+    if len(comps) == 0:
+        st.warning(f"No hay publicaciones de {calc_brand} {calc_model} en la base.")
+        return
+
     # Build filter description
     year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
     km_vals = comps["km"].dropna()
     km_range_used = f"{int(km_vals.min()):,}-{int(km_vals.max()):,} km" if not km_vals.empty else "s/d"
 
-    if len(comps) < 2:
-        st.warning(f"No hay suficientes datos comparables para {calc_brand} {calc_model}. Se encontró solo {len(comps)} publicación.")
-        return
+    if len(comps) < 3:
+        st.warning(
+            f"Pocos datos comparables ({len(comps)} publicación{'es' if len(comps) != 1 else ''}). "
+            f"El precio sugerido es una estimación gruesa — usalo solo como punto de partida."
+        )
+
+    if broadened_model:
+        family_models = ", ".join(sorted(comps["model"].dropna().unique()))
+        st.info(f"Se amplió la búsqueda a toda la familia: {family_models}")
 
     prices = sorted(comps["price_usd"].tolist())
 
-    # Remove top 20%
+    # Remove top 20% only when we have enough data — with few comps, every
+    # point matters and trimming would distort the result.
     import math
-    cut = max(1, math.ceil(len(prices) * 0.20))
-    filtered_prices = prices[:-cut] if len(prices) > 2 else prices
+    if len(prices) >= 5:
+        cut = max(1, math.ceil(len(prices) * 0.20))
+        filtered_prices = prices[:-cut]
+    else:
+        filtered_prices = prices
 
     p25 = float(np.percentile(filtered_prices, 25))
     p50 = float(np.median(filtered_prices))
@@ -1227,8 +1258,11 @@ def _render_price_calculator(merged_df):
             """)
 
     # --- Histograma "Precios de referencia" ---
-    avg_km = int(comps["km"].dropna().mean()) if comps["km"].dropna().any() else None
-    st.html(_render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km))
+    # Skip when there's too little data — the histogram looks broken with a
+    # single bin holding all the mass and zero everywhere else.
+    if len(filtered_prices) >= 5:
+        avg_km = int(comps["km"].dropna().mean()) if comps["km"].dropna().any() else None
+        st.html(_render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km))
 
     # Show comparables table as HTML with clickable links
     st.divider()
