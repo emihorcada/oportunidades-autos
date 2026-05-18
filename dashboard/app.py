@@ -727,6 +727,12 @@ def main():
         st.query_params.clear()
         st.rerun()
 
+    if "refresh" in st.query_params:
+        st.query_params.clear()
+        _run_scraper()
+        st.cache_data.clear()
+        st.rerun()
+
     listings_df, references_df, merged_df, price_history_df = load_data_v2()
 
     # --- Main tabs ---
@@ -737,7 +743,11 @@ def main():
     # ================================================================
     with main_tabs[0]:
         if merged_df.empty:
-            st.warning("No hay datos. Clickeá 'Actualizar datos'.")
+            st.warning("No hay datos.")
+            if st.button("🔄 Actualizar datos", type="primary"):
+                _run_scraper()
+                st.cache_data.clear()
+                st.rerun()
         _render_opportunities_tab(listings_df, references_df, merged_df, price_history_df, st.session_state["favorites"])
 
     # ================================================================
