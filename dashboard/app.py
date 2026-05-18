@@ -1027,7 +1027,10 @@ def _build_opportunities_cards(df, all_data, price_history_df=None, favorites=No
 def _render_reference_chart(prices, recommended, brand, model, year, km):
     """SVG histogram of comparable prices with the recommended price highlighted."""
     import numpy as np
-    counts, edges = np.histogram(prices, bins=12)
+    # Adapt bins to sample size — 12 bins for ≥10 points, fewer for sparse data
+    # so we don't end up with mostly-empty bars.
+    n_bins = max(3, min(12, len(prices) // 2 + 1))
+    counts, edges = np.histogram(prices, bins=n_bins)
     max_count = max(counts) or 1
 
     # Bin containing the recommended price (clamped)
@@ -1258,9 +1261,7 @@ def _render_price_calculator(merged_df):
             """)
 
     # --- Histograma "Precios de referencia" ---
-    # Skip when there's too little data — the histogram looks broken with a
-    # single bin holding all the mass and zero everywhere else.
-    if len(filtered_prices) >= 5:
+    if len(filtered_prices) >= 3:
         avg_km = int(comps["km"].dropna().mean()) if comps["km"].dropna().any() else None
         st.html(_render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km))
 
