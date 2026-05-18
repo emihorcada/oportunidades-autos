@@ -1135,18 +1135,35 @@ def _render_price_calculator(merged_df):
         calc_year = st.selectbox("Año", all_years, key="calc_year")
 
     with c5:
-        km_col1, km_col2 = st.columns(2)
-        with km_col1:
-            calc_km_min = st.number_input("Km desde", min_value=0, max_value=500000, value=20000, step=5000, key="calc_km_min")
-        with km_col2:
-            calc_km_max = st.number_input("Km hasta", min_value=0, max_value=500000, value=60000, step=5000, key="calc_km_max")
+        calc_km = st.number_input(
+            "Km del auto",
+            min_value=0,
+            max_value=500000,
+            value=50000,
+            step=5000,
+            key="calc_km",
+            help="Kilometraje real del auto que estás cotizando. Buscamos publicaciones con km similares.",
+        )
+
+    # Optional Kavak/Motormax floor price
+    fc1, fc2 = st.columns([2, 5])
+    with fc1:
+        calc_floor = st.number_input(
+            "Piso de cotización (USD, opcional)",
+            min_value=0,
+            max_value=500000,
+            value=0,
+            step=500,
+            key="calc_floor",
+            help="Lo que te ofreció Kavak o Motormax. Aparece como piso de referencia.",
+        )
 
     # Store in session state so results persist
     if st.button("Calcular precio", type="primary"):
         st.session_state["calc_submitted"] = True
         st.session_state["calc_params"] = {
             "brand": calc_brand, "model": calc_model, "version": calc_version,
-            "year": calc_year, "km_min": calc_km_min, "km_max": calc_km_max,
+            "year": calc_year, "km": calc_km, "floor": calc_floor,
         }
 
     if not st.session_state.get("calc_submitted"):
@@ -1158,8 +1175,8 @@ def _render_price_calculator(merged_df):
     calc_model = p["model"]
     calc_version = p["version"]
     calc_year = p["year"]
-    calc_km_min = p["km_min"]
-    calc_km_max = p["km_max"]
+    calc_km = p["km"]
+    calc_floor = p.get("floor", 0)
 
     # --- Progressive filtering ---
     # Step 1: Try exact model match first
@@ -1225,37 +1242,48 @@ def _render_price_calculator(merged_df):
         if len(version_comps) >= 3:
             comps = version_comps
 
-    # Step 4: Filter by km range (user-defined) — strictly respected
-    comps = comps[
-        (comps["km"].notna()) &
-        (comps["km"] >= calc_km_min) &
-        (comps["km"] <= calc_km_max)
-    ]
+    # All comps for this brand+model+year (no km filter yet — needed for
+    # ML min/max bounds).
+    all_comps = comps[comps["km"].notna()].copy()
 
-    if len(comps) == 0:
-        st.warning(
-            f"No hay publicaciones de {calc_brand} {calc_model} dentro del rango "
-            f"de km ({calc_km_min:,} a {calc_km_max:,}). Ampliá el rango."
-        )
+    if len(all_comps) == 0:
+        st.warning(f"No hay publicaciones de {calc_brand} {calc_model} con km informado.")
         return
 
-    # Build filter description
-    year_range_used = f"{int(comps['year'].min())}-{int(comps['year'].max())}" if len(comps['year'].unique()) > 1 else str(int(comps['year'].iloc[0]))
-    km_vals = comps["km"].dropna()
-    km_range_used = f"{int(km_vals.min()):,}-{int(km_vals.max()):,} km" if not km_vals.empty else "s/d"
+    # "Similar km" subset — listings within ±20% of the user's car km (or
+    # ±15.000 km, whichever is wider, to be useful with low-km cars too).
+    tolerance = max(15000, int(calc_km * 0.20))
+    km_low = max(0, calc_km - tolerance)
+    km_high = calc_km + tolerance
+    similar_comps = all_comps[(all_comps["km"] >= km_low) & (all_comps["km"] <= km_high)]
 
-    if len(comps) < 3:
-        st.warning(
-            f"Pocos datos comparables ({len(comps)} publicación{'es' if len(comps) != 1 else ''}). "
-            f"El precio sugerido es una estimación gruesa — usalo solo como punto de partida."
-        )
+    # If too few comps in the similar-km band, widen until we have at least 3
+    while len(similar_comps) < 3 and tolerance < 200000:
+        tolerance = int(tolerance * 1.5)
+        km_low = max(0, calc_km - tolerance)
+        km_high = calc_km + tolerance
+        similar_comps = all_comps[(all_comps["km"] >= km_low) & (all_comps["km"] <= km_high)]
 
     if broadened_model:
-        family_models = ", ".join(sorted(comps["model"].dropna().unique()))
+        family_models = ", ".join(sorted(all_comps["model"].dropna().unique()))
         st.info(f"Se amplió la búsqueda a toda la familia: {family_models}")
 
+    if len(similar_comps) < 3:
+        st.warning(
+            f"Pocas publicaciones con km cercano a {calc_km:,} ({len(similar_comps)}). "
+            f"La referencia es una estimación gruesa."
+        )
+
+    # comps = similar_comps for the rest of the render (histogram, table)
+    comps = similar_comps if len(similar_comps) >= 1 else all_comps
     prices = sorted(comps["price_usd"].tolist())
     filtered_prices = prices
+    ml_min = float(all_comps["price_usd"].min())
+    ml_max = float(all_comps["price_usd"].max())
+
+    # Build filter description
+    year_range_used = f"{int(all_comps['year'].min())}-{int(all_comps['year'].max())}" if len(all_comps['year'].unique()) > 1 else str(int(all_comps['year'].iloc[0]))
+    km_range_used = f"{km_low:,}-{km_high:,} km".replace(",", ".")
 
     p25 = float(np.percentile(filtered_prices, 25))
     p50 = float(np.median(filtered_prices))
@@ -1269,19 +1297,52 @@ def _render_price_calculator(merged_df):
 
     st.divider()
     st.subheader("Resultado")
-    st.write(f"**{calc_brand} {calc_model} {calc_year}** — entre {calc_km_min:,} y {calc_km_max:,} km")
-    st.write(f"Basado en **{len(comps)}** publicaciones comparables (años: {year_range_used}, km: {km_range_used})")
+    st.write(f"**{calc_brand} {calc_model} {calc_year}** — {calc_km:,} km".replace(",", "."))
+    st.write(
+        f"Basado en **{len(comps)}** publicaciones similares "
+        f"(años: {year_range_used}, km en rango {km_range_used}). "
+        f"Mercado total: {len(all_comps)} publicaciones de {calc_brand} {calc_model} {calc_year}."
+    )
 
-    # Cards for each scenario
+    # --- Headline panel: piso, mínimo, sugerido, máximo ---
+    floor_html = ""
+    if calc_floor and calc_floor > 0:
+        floor_html = f"""
+        <div style="flex:1;background:#f4f4f5;border-radius:10px;padding:14px 18px;border-left:4px solid #6b7280;">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Piso (Kavak/Motormax)</div>
+            <div style="font-size:24px;font-weight:700;color:#374151;margin-top:6px;">USD {calc_floor:,}</div>
+        </div>
+        """
+    headline_html = f"""
+    <div style="display:flex;gap:12px;margin:16px 0 24px;flex-wrap:wrap;font-family:Arial,sans-serif;">
+        {floor_html}
+        <div style="flex:1;background:#fef2f2;border-radius:10px;padding:14px 18px;border-left:4px solid #cc3333;">
+            <div style="font-size:11px;color:#991b1b;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Mínimo ML</div>
+            <div style="font-size:24px;font-weight:700;color:#991b1b;margin-top:6px;">USD {ml_min:,.0f}</div>
+        </div>
+        <div style="flex:1.4;background:#eff6ff;border-radius:10px;padding:14px 18px;border-left:4px solid #2563eb;">
+            <div style="font-size:11px;color:#1e40af;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Sugerido (similar km)</div>
+            <div style="font-size:32px;font-weight:800;color:#1e40af;margin-top:4px;">USD {round(p50):,}</div>
+        </div>
+        <div style="flex:1;background:#f0fdf4;border-radius:10px;padding:14px 18px;border-left:4px solid #1a8a4a;">
+            <div style="font-size:11px;color:#166534;text-transform:uppercase;letter-spacing:.5px;font-weight:600;">Máximo ML</div>
+            <div style="font-size:24px;font-weight:700;color:#166534;margin-top:6px;">USD {ml_max:,.0f}</div>
+        </div>
+    </div>
+    """
+    st.html(headline_html)
+
+    # Cards for each scenario (kept as secondary detail)
+    st.caption("Rango sugerido según percentiles de las publicaciones similares:")
     cols = st.columns(3)
     for i, (name, data) in enumerate(scenarios.items()):
         price = data["price"]
         with cols[i]:
             st.html(f"""
-            <div style="background: #f9f9f9; border-radius: 10px; padding: 20px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
-                <div style="font-size: 14px; color: #666; margin-bottom: 4px;">{name}</div>
-                <div style="font-size: 11px; color: #999; margin-bottom: 16px;">{data['desc']}</div>
-                <div style="font-size: 32px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
+            <div style="background: #f9f9f9; border-radius: 10px; padding: 16px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
+                <div style="font-size: 13px; color: #666; margin-bottom: 2px;">{name}</div>
+                <div style="font-size: 11px; color: #999; margin-bottom: 10px;">{data['desc']}</div>
+                <div style="font-size: 24px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
             </div>
             """)
 
@@ -1290,10 +1351,10 @@ def _render_price_calculator(merged_df):
         avg_km = int(comps["km"].dropna().mean()) if comps["km"].dropna().any() else None
         st.html(_render_reference_chart(filtered_prices, round(p50), calc_brand, calc_model, int(calc_year), avg_km))
 
-    # Show comparables table as HTML with clickable links
+    # Show comparables table as HTML with clickable links — sorted by km proximity
     st.divider()
-    st.write(f"**Publicaciones comparables encontradas ({len(comps)}):**")
-    comp_sorted = comps.sort_values("price_usd").reset_index(drop=True)
+    st.write(f"**Publicaciones comparables encontradas ({len(comps)}):** ordenadas por cercanía de km a tu auto ({calc_km:,} km).".replace(",", "."))
+    comp_sorted = comps.assign(_km_dist=(comps["km"] - calc_km).abs()).sort_values("_km_dist").drop(columns="_km_dist").reset_index(drop=True)
     comp_rows = []
     for _, c in comp_sorted.iterrows():
         c_url = c.get("url", "") or ""
