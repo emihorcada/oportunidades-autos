@@ -1039,8 +1039,8 @@ def _live_scrape(brand: str, model_token: str, year: int):
 def _render_reference_chart(prices, recommended, brand, model, year, km):
     """Histogram of comparable prices with the recommended price highlighted.
 
-    Uses altair (bundled with Streamlit) instead of inline SVG — Streamlit's
-    html sandbox was collapsing SVG to zero height.
+    Altair with pre-binned data on a categorical x axis — that draws actual
+    visible bars where the prior continuous+binned encoding rendered nothing.
     """
     import altair as alt
     import numpy as np
@@ -1048,57 +1048,48 @@ def _render_reference_chart(prices, recommended, brand, model, year, km):
     n_bins = max(3, min(12, len(prices) // 2 + 1))
     counts, edges = np.histogram(prices, bins=n_bins)
     hi_idx = int(np.clip(np.searchsorted(edges, recommended) - 1, 0, len(counts) - 1))
-    hi_low = float(edges[hi_idx])
-    hi_high = float(edges[hi_idx + 1])
 
-    bins_df = pd.DataFrame({
-        "bin_start": edges[:-1],
-        "bin_end": edges[1:],
-        "count": counts,
-    })
-    bins_df["bin_mid"] = (bins_df["bin_start"] + bins_df["bin_end"]) / 2
-    bins_df["highlight"] = (bins_df["bin_start"] >= hi_low - 0.01) & (bins_df["bin_start"] <= hi_low + 0.01)
+    bin_rows = []
+    for i, c in enumerate(counts):
+        low = int(edges[i])
+        high = int(edges[i + 1])
+        bin_rows.append({
+            "label": f"${low:,.0f}-${high:,.0f}",
+            "order": i,
+            "count": int(c),
+            "highlight": i == hi_idx,
+        })
+    bins_df = pd.DataFrame(bin_rows)
 
     bars = (
         alt.Chart(bins_df)
-        .mark_bar(cornerRadius=3)
+        .mark_bar(cornerRadius=3, size=32)
         .encode(
             x=alt.X(
-                "bin_start:Q",
-                bin="binned",
-                axis=alt.Axis(format="$,.0f", labelColor="#6b7280", title=None, grid=False, tickCount=4),
+                "label:N",
+                sort=alt.SortField("order"),
+                axis=alt.Axis(labelAngle=-40, labelFontSize=11, labelColor="#6b7280", title=None, ticks=False, domain=False),
             ),
-            x2="bin_end:Q",
             y=alt.Y("count:Q", axis=None),
-            color=alt.condition("datum.highlight", alt.value("#2563eb"), alt.value("#d4d4d4")),
+            color=alt.condition(alt.datum.highlight, alt.value("#2563eb"), alt.value("#d4d4d4")),
+            tooltip=[alt.Tooltip("label:N", title="Rango"), alt.Tooltip("count:Q", title="Publicaciones")],
         )
-        .properties(height=180)
+        .properties(height=220)
+        .configure_view(stroke=None)
     )
-
-    label_df = pd.DataFrame({"label_x": [(hi_low + hi_high) / 2], "label_y": [int(counts[hi_idx])], "text": [f"USD {recommended:,.0f}"]})
-    label = (
-        alt.Chart(label_df)
-        .mark_text(
-            align="center",
-            baseline="bottom",
-            dy=-10,
-            fontSize=13,
-            fontWeight="bold",
-            color="#2563eb",
-        )
-        .encode(x="label_x:Q", y="label_y:Q", text="text:N")
-    )
-
-    chart = (bars + label).configure_view(stroke=None).configure_axis(domainColor="#e5e7eb", tickColor="#e5e7eb")
 
     km_str = f"{km:,} km".replace(",", ".") if km is not None else ""
     st.html(f"""
     <div style="font-family:Arial,sans-serif;margin-top:24px;">
       <div style="font-size:20px;font-weight:600;color:#111827;margin-bottom:4px;">Precios de referencia</div>
-      <div style="font-size:13px;color:#6b7280;margin-bottom:8px;">Distribución de precios entre publicaciones similares en Mercado Libre.</div>
+      <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">
+        Cada barra agrupa publicaciones por rango de precio en USD. La barra
+        <b style="color:#2563eb">azul</b> contiene la mediana
+        (<b style="color:#2563eb">USD {recommended:,.0f}</b>) — el precio sugerido para este auto.
+      </div>
     </div>
     """)
-    st.altair_chart(chart, use_container_width=True)
+    st.altair_chart(bars, use_container_width=True)
     st.html(f"""
     <div style="font-family:Arial,sans-serif;">
       <div style="font-size:22px;font-weight:600;color:#111827;margin-top:8px;">{km_str}</div>
