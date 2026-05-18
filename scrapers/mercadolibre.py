@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Optional
 
-from playwright.sync_api import sync_playwright
+import requests
 
 from core.exchange_rate import convert_ars_to_usd
 
@@ -18,49 +19,34 @@ ML_CATEGORY = "MLA1743"
 # spam/plan-de-ahorro listings, leaving brands like Toyota/Hilux unrepresented.
 ML_BASE_URL = "https://autos.mercadolibre.com.ar/autos/desde-2016/_NoIndex_True"
 
-# ML now serves an empty shell page (or redirects to account-verification)
-# for unauthenticated requests/sessions originating from servers.  Plain
-# requests get a 5KB stub.  Playwright (real Chromium) passes the check
-# and returns the full polycard-embedded HTML.
+# ML blocks unauthenticated server requests (5KB stub or account-verification
+# redirect).  We use Firecrawl with stealth proxy to bypass — they rotate
+# residential IPs and handle fingerprinting.  The raw HTML they return is
+# the same the browser sees, so the existing polycard parser works unchanged.
 
-_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
-)
+_FIRECRAWL_URL = "https://api.firecrawl.dev/v1/scrape"
 
 # Items per page on ML website (fixed at 48 for grid view).
 _PAGE_SIZE = 48
 
 
+def _get_firecrawl_key() -> str:
+    key = os.environ.get("FIRECRAWL_API_KEY")
+    if key:
+        return key
+    try:
+        import streamlit as st
+        return st.secrets["FIRECRAWL_API_KEY"]
+    except Exception:
+        raise RuntimeError(
+            "FIRECRAWL_API_KEY not set. Add it to .streamlit/secrets.toml or env."
+        )
+
+
 class MercadoLibreScraper:
     def __init__(self, usd_rate):
         self.usd_rate = usd_rate
-        self._pw = None
-        self._browser = None
-        self._context = None
-
-    def _ensure_browser(self):
-        if self._context is not None:
-            return
-        self._pw = sync_playwright().start()
-        self._browser = self._pw.chromium.launch(headless=True)
-        self._context = self._browser.new_context(
-            viewport={"width": 1280, "height": 800},
-            user_agent=_UA,
-            locale="es-AR",
-        )
-
-    def _close_browser(self):
-        if self._context:
-            self._context.close()
-            self._context = None
-        if self._browser:
-            self._browser.close()
-            self._browser = None
-        if self._pw:
-            self._pw.stop()
-            self._pw = None
+        self._fc_key = _get_firecrawl_key()
 
     # ------------------------------------------------------------------
     # Legacy API-style parse_listing – kept for backward compatibility
@@ -273,19 +259,27 @@ class MercadoLibreScraper:
 
         Returns ``(results, total)`` matching the original API interface.
         """
-        self._ensure_browser()
         url = self._build_url(offset)
-        page = self._context.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            try:
-                page.wait_for_selector("li.ui-search-layout__item", timeout=15000)
-            except Exception:
-                # No cards rendered — give it one more grace period
-                page.wait_for_timeout(3000)
-            html = page.content()
-        finally:
-            page.close()
+        resp = requests.post(
+            _FIRECRAWL_URL,
+            headers={
+                "Authorization": f"Bearer {self._fc_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "url": url,
+                "formats": ["rawHtml"],
+                "proxy": "stealth",
+                "onlyMainContent": False,
+            },
+            timeout=120,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Firecrawl HTTP {resp.status_code}: {resp.text[:300]}")
+        payload = resp.json()
+        if not payload.get("success"):
+            raise RuntimeError(f"Firecrawl scrape failed: {payload}")
+        html = payload.get("data", {}).get("rawHtml", "")
 
         cards, total = self._extract_polycards(html)
 
@@ -300,27 +294,23 @@ class MercadoLibreScraper:
         return results, total
 
     def scrape_all(self):
-        logger.info("Starting MercadoLibre scrape...")
+        logger.info("Starting MercadoLibre scrape (via Firecrawl)...")
         all_listings = []
         offset = 0
         total = None
 
-        try:
-            while total is None or offset < min(total, 1000):
-                try:
-                    results, total = self.fetch_page(offset)
-                    all_listings.extend(results)
-                    logger.info(
-                        f"  Fetched {len(results)} listings "
-                        f"(offset={offset}, total={total})"
-                    )
-                    offset += _PAGE_SIZE
-                    time.sleep(1)
-                except Exception as e:
-                    logger.error(f"  Error at offset {offset}: {e}")
-                    break
-        finally:
-            self._close_browser()
+        while total is None or offset < min(total, 1000):
+            try:
+                results, total = self.fetch_page(offset)
+                all_listings.extend(results)
+                logger.info(
+                    f"  Fetched {len(results)} listings "
+                    f"(offset={offset}, total={total})"
+                )
+                offset += _PAGE_SIZE
+            except Exception as e:
+                logger.error(f"  Error at offset {offset}: {e}")
+                break
 
         logger.info(f"MercadoLibre: {len(all_listings)} listings scraped.")
         return all_listings

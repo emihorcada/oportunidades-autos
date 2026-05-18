@@ -503,17 +503,13 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
 def _run_scraper():
     """Run the full scraper pipeline from the dashboard.
 
-    Requires Playwright + Chromium locally.  On Streamlit Cloud (no
-    Chromium installed) we surface a clear instruction instead of crashing.
+    Uses Firecrawl (stealth proxy) to bypass ML's anti-bot.  Requires
+    FIRECRAWL_API_KEY in secrets.toml or env.
     """
     try:
         from scrapers.mercadolibre import MercadoLibreScraper
-    except ImportError:
-        st.error(
-            "El scraper requiere Playwright + Chromium, que no están "
-            "disponibles en Streamlit Cloud. Corré el scraper localmente "
-            "(`python run_scraper.py`) y los datos van a aparecer acá."
-        )
+    except Exception as e:
+        st.error(f"No se pudo cargar el scraper: {e}")
         return
     import time
 
