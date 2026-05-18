@@ -501,8 +501,20 @@ def _build_opportunities_table(df, all_data, price_history_df=None, favorites=No
 
 
 def _run_scraper():
-    """Run the full scraper pipeline from the dashboard."""
-    from scrapers.mercadolibre import MercadoLibreScraper
+    """Run the full scraper pipeline from the dashboard.
+
+    Requires Playwright + Chromium locally.  On Streamlit Cloud (no
+    Chromium installed) we surface a clear instruction instead of crashing.
+    """
+    try:
+        from scrapers.mercadolibre import MercadoLibreScraper
+    except ImportError:
+        st.error(
+            "El scraper requiere Playwright + Chromium, que no están "
+            "disponibles en Streamlit Cloud. Corré el scraper localmente "
+            "(`python run_scraper.py`) y los datos van a aparecer acá."
+        )
+        return
     import time
 
     db = get_database()
@@ -807,18 +819,22 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         with fc5:
             year_min = int(merged_df["year"].min()) if not merged_df["year"].isna().all() else 2016
             year_max = int(merged_df["year"].max()) if not merged_df["year"].isna().all() else 2026
-            year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year")
+            year_off = st.checkbox("Sin filtro", key="opp_year_off", value=False)
+            year_range = st.slider("Año", year_min, year_max, (year_min, year_max), key="opp_year", disabled=year_off)
 
         with fc6:
             km_max_val = int(merged_df["km"].max()) if not merged_df["km"].isna().all() else 200000
-            km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km")
+            km_off = st.checkbox("Sin filtro", key="opp_km_off", value=False)
+            km_range = st.slider("Kilómetros", 0, km_max_val, (0, km_max_val), key="opp_km", disabled=km_off)
 
         with fc7:
             price_max_val = int(merged_df["price_usd"].max()) if not merged_df["price_usd"].isna().all() else 100000
-            price_range = st.slider("Precio", 0, price_max_val, (0, price_max_val), key="opp_price", format="USD %d")
+            price_off = st.checkbox("Sin filtro", key="opp_price_off", value=False)
+            price_range = st.slider("Precio", 0, price_max_val, (0, price_max_val), key="opp_price", format="USD %d", disabled=price_off)
 
         with fc8:
-            min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d")
+            profit_off = st.checkbox("Sin filtro", key="opp_profit_off", value=False)
+            min_profit = st.slider("Ganancia mínima neta", 500, 10000, 1000, step=250, key="opp_profit", format="USD %d", disabled=profit_off)
 
         with fc9:
             all_locations = sorted(merged_df["location"].dropna().unique().tolist())
@@ -841,11 +857,12 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
     if selected_source != "Todas":
         df = df[df["source"] == selected_source]
 
-    df = df[
-        (df["year"] >= year_range[0]) & (df["year"] <= year_range[1]) &
-        (df["km"].fillna(0) >= km_range[0]) & (df["km"].fillna(0) <= km_range[1]) &
-        (df["price_usd"].fillna(0) >= price_range[0]) & (df["price_usd"].fillna(0) <= price_range[1])
-    ]
+    if not year_off:
+        df = df[(df["year"] >= year_range[0]) & (df["year"] <= year_range[1])]
+    if not km_off:
+        df = df[(df["km"].fillna(0) >= km_range[0]) & (df["km"].fillna(0) <= km_range[1])]
+    if not price_off:
+        df = df[(df["price_usd"].fillna(0) >= price_range[0]) & (df["price_usd"].fillna(0) <= price_range[1])]
 
     if location_filter:
         df = df[df["location"].isin(location_filter)]
@@ -854,9 +871,12 @@ def _render_opportunities_tab(listings_df, references_df, merged_df, price_histo
         df = df[df.apply(lambda r: (r.get("source"), r.get("source_id")) in favorites, axis=1)]
 
     # --- Opportunities (using net profit) ---
-    opportunities = df[df["net_profit_usd"] >= min_profit].sort_values(
-        "net_profit_usd", ascending=False
-    )
+    if profit_off:
+        opportunities = df.sort_values("net_profit_usd", ascending=False)
+    else:
+        opportunities = df[df["net_profit_usd"] >= min_profit].sort_values(
+            "net_profit_usd", ascending=False
+        )
 
     # --- View toggle + title ---
     if "opp_view" not in st.session_state:
@@ -1049,27 +1069,12 @@ def _render_price_calculator(merged_df):
         with km_col2:
             calc_km_max = st.number_input("Km hasta", min_value=0, max_value=500000, value=60000, step=5000, key="calc_km_max")
 
-    commission_options = {
-        "3% del precio de venta": 0.03,
-        "5% del precio de venta": 0.05,
-        "7% del precio de venta": 0.07,
-        "10% del precio de venta": 0.10,
-        "USD 300 fijo": 300,
-        "USD 500 fijo": 500,
-        "USD 750 fijo": 750,
-        "USD 1.000 fijo": 1000,
-    }
-    cc1, cc2 = st.columns([2, 5])
-    with cc1:
-        commission_label = st.selectbox("Tu comisión", list(commission_options.keys()), key="calc_commission")
-
     # Store in session state so results persist
     if st.button("Calcular precio", type="primary"):
         st.session_state["calc_submitted"] = True
         st.session_state["calc_params"] = {
             "brand": calc_brand, "model": calc_model, "version": calc_version,
             "year": calc_year, "km_min": calc_km_min, "km_max": calc_km_max,
-            "commission_label": commission_label,
         }
 
     if not st.session_state.get("calc_submitted"):
@@ -1083,10 +1088,6 @@ def _render_price_calculator(merged_df):
     calc_year = p["year"]
     calc_km_min = p["km_min"]
     calc_km_max = p["km_max"]
-    commission_label = p["commission_label"]
-
-    commission_value = commission_options[commission_label]
-    is_percentage = "%" in commission_label
 
     # --- Progressive filtering ---
     # Step 1: All listings of this brand + model
@@ -1159,29 +1160,12 @@ def _render_price_calculator(merged_df):
     cols = st.columns(3)
     for i, (name, data) in enumerate(scenarios.items()):
         price = data["price"]
-        if is_percentage:
-            commission = round(price * commission_value)
-        else:
-            commission = commission_value
-        seller_gets = price - commission
-
         with cols[i]:
             st.html(f"""
             <div style="background: #f9f9f9; border-radius: 10px; padding: 20px; border-left: 5px solid {data['color']}; font-family: Arial, sans-serif;">
                 <div style="font-size: 14px; color: #666; margin-bottom: 4px;">{name}</div>
-                <div style="font-size: 11px; color: #999; margin-bottom: 12px;">{data['desc']}</div>
-                <div style="font-size: 28px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
-                <div style="margin-top: 12px; font-size: 13px; color: #555;">
-                    <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
-                        <span>Precio de venta</span><span><b>USD {price:,}</b></span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; padding: 4px 0; border-bottom: 1px solid #eee;">
-                        <span>Tu comisión</span><span style="color:{data['color']}"><b>USD {commission:,}</b></span>
-                    </div>
-                    <div style="display:flex; justify-content:space-between; padding: 4px 0;">
-                        <span>El vendedor recibe</span><span><b>USD {seller_gets:,}</b></span>
-                    </div>
-                </div>
+                <div style="font-size: 11px; color: #999; margin-bottom: 16px;">{data['desc']}</div>
+                <div style="font-size: 32px; font-weight: bold; color: {data['color']};">USD {price:,}</div>
             </div>
             """)
 

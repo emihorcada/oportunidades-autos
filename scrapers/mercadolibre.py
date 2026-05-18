@@ -6,7 +6,7 @@ import re
 import time
 from typing import Optional
 
-import requests
+from playwright.sync_api import sync_playwright
 
 from core.exchange_rate import convert_ars_to_usd
 
@@ -15,20 +15,16 @@ logger = logging.getLogger(__name__)
 ML_CATEGORY = "MLA1743"
 ML_BASE_URL = "https://autos.mercadolibre.com.ar/autos/desde-2016/_OrderId_PRICE_NoIndex_True"
 
-# The public search API (api.mercadolibre.com/sites/MLA/search) now returns
-# 403 Forbidden for unauthenticated requests.  Instead we fetch the search
-# results HTML page and extract the embedded polycard JSON that MercadoLibre
-# renders server-side.
+# ML now serves an empty shell page (or redirects to account-verification)
+# for unauthenticated requests/sessions originating from servers.  Plain
+# requests get a 5KB stub.  Playwright (real Chromium) passes the check
+# and returns the full polycard-embedded HTML.
 
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "es-419,es;q=0.9",
-}
+_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
 
 # Items per page on ML website (fixed at 48 for grid view).
 _PAGE_SIZE = 48
@@ -37,8 +33,31 @@ _PAGE_SIZE = 48
 class MercadoLibreScraper:
     def __init__(self, usd_rate):
         self.usd_rate = usd_rate
-        self.session = requests.Session()
-        self.session.headers.update(_HEADERS)
+        self._pw = None
+        self._browser = None
+        self._context = None
+
+    def _ensure_browser(self):
+        if self._context is not None:
+            return
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.launch(headless=True)
+        self._context = self._browser.new_context(
+            viewport={"width": 1280, "height": 800},
+            user_agent=_UA,
+            locale="es-AR",
+        )
+
+    def _close_browser(self):
+        if self._context:
+            self._context.close()
+            self._context = None
+        if self._browser:
+            self._browser.close()
+            self._browser = None
+        if self._pw:
+            self._pw.stop()
+            self._pw = None
 
     # ------------------------------------------------------------------
     # Legacy API-style parse_listing – kept for backward compatibility
@@ -251,11 +270,21 @@ class MercadoLibreScraper:
 
         Returns ``(results, total)`` matching the original API interface.
         """
+        self._ensure_browser()
         url = self._build_url(offset)
-        response = self.session.get(url, timeout=30)
-        response.raise_for_status()
+        page = self._context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            try:
+                page.wait_for_selector("li.ui-search-layout__item", timeout=15000)
+            except Exception:
+                # No cards rendered — give it one more grace period
+                page.wait_for_timeout(3000)
+            html = page.content()
+        finally:
+            page.close()
 
-        cards, total = self._extract_polycards(response.text)
+        cards, total = self._extract_polycards(html)
 
         results = []
         seen_ids = set()
@@ -273,19 +302,22 @@ class MercadoLibreScraper:
         offset = 0
         total = None
 
-        while total is None or offset < min(total, 1000):
-            try:
-                results, total = self.fetch_page(offset)
-                all_listings.extend(results)
-                logger.info(
-                    f"  Fetched {len(results)} listings "
-                    f"(offset={offset}, total={total})"
-                )
-                offset += _PAGE_SIZE
-                time.sleep(1)
-            except Exception as e:
-                logger.error(f"  Error at offset {offset}: {e}")
-                break
+        try:
+            while total is None or offset < min(total, 1000):
+                try:
+                    results, total = self.fetch_page(offset)
+                    all_listings.extend(results)
+                    logger.info(
+                        f"  Fetched {len(results)} listings "
+                        f"(offset={offset}, total={total})"
+                    )
+                    offset += _PAGE_SIZE
+                    time.sleep(1)
+                except Exception as e:
+                    logger.error(f"  Error at offset {offset}: {e}")
+                    break
+        finally:
+            self._close_browser()
 
         logger.info(f"MercadoLibre: {len(all_listings)} listings scraped.")
         return all_listings
